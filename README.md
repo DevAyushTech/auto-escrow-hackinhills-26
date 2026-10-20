@@ -2,7 +2,7 @@
 
 Auto Escrow is a greenfield MVP for coordinating work between people and AI agents. It is designed around a transparent sequence: define a task, compare agents, agree on terms, verify a result, and only then settle a simulated escrow balance.
 
-Phase 5 adds a deterministic, explainable agent matching engine on top of the Phase 4 job workflow. Phase 6 adds a persisted agreement negotiation flow: a selected agent can receive a typed proposal, request and submit revisions, accept/reject/cancel the proposal, and inspect append-only proposal history. Acceptance freezes the current terms, moves the job to `assigned`, and does not fund escrow.
+Phase 5 adds a deterministic, explainable agent matching engine on top of the Phase 4 job workflow. Phase 6 adds a persisted agreement negotiation flow: a selected agent can receive a typed proposal, request and submit revisions, accept/reject/cancel the proposal, and inspect append-only proposal history. Phase 7 adds a simulated escrow ledger: funding is derived from the accepted agreement, stored as an append-only ledger entry, and guarded from settlement until later verification exists. Acceptance freezes the current terms, moves the job to `assigned`, and does not fund escrow.
 
 ## Current scope
 
@@ -13,7 +13,7 @@ Implemented:
 - Environment-backed settings and local-origin CORS.
 - SQLAlchemy 2 models with relationships, foreign keys, indexes, uniqueness constraints, and database checks.
 - SQLite local database with PostgreSQL-compatible URL support.
-- Alembic revisions `0001_phase1_foundation`, `0002_escrow_domain`, `0003_explicit_domain_fields`, `0004_optional_job_requester`, `0005_audit_event_description`, `0006_matching_results`, and `0007_agreement_negotiation`.
+- Alembic revisions `0001_phase1_foundation`, `0002_escrow_domain`, `0003_explicit_domain_fields`, `0004_optional_job_requester`, `0005_audit_event_description`, `0006_matching_results`, `0007_agreement_negotiation`, and `0008_simulated_escrow_lifecycle`.
 - Decimal-safe `NUMERIC(18,2)` money fields and fixed-point API serialization.
 - Validated Pydantic request/response contracts.
 - Versioned FastAPI endpoints for agents, jobs, agreements, escrow lookup, audit activity, and persisted dashboard metrics.
@@ -30,11 +30,12 @@ Implemented:
 - Phase 6 agreement proposals with typed scope, deliverable, acceptance, verification, cancellation, and dispute terms.
 - Versioned agreement negotiation with request/submit revision actions, append-only history, terminal-state validation, audit events, and accepted-term freezing.
 - Agreement workspace UI with proposal creation, validation, revision controls, acceptance/rejection/cancellation actions, history, retries, and demo-mode escrow boundary messaging.
+- Simulated escrow funding with accepted-agreement amount derivation, append-only funding ledger entries, idempotency protection, escrow state validation, and guarded settlement/refund service endpoints.
+- Escrow details UI with accepted agreement summary, funding confirmation, persisted ledger and audit history, loading/error states, and explicit no-real-money messaging.
 - Responsive navigation for Dashboard, Agents, Jobs, Escrow, Disputes, and Settings.
 
 Not yet implemented:
 
-- Escrow funding, release, refund, and settlement transitions.
 - Work submission and rule-based verification operations.
 - Dispute creation and demo-operator resolution.
 - Authentication and production authorization.
@@ -246,6 +247,17 @@ When a job exists without an agreement or escrow, the related lookup returns `20
 
 Agreement creation requires an open job with a persisted selected agent. A proposal starts at version 1. Send `{"action":"request_revision"}` to move it to `revision_requested`; send `{"action":"submit_revision", ...}` to append the next terms snapshot and return it to `proposed`. Only `proposed` agreements can be accepted. Acceptance records `accepted_version`, moves the job from `open` to `assigned`, and never creates or funds escrow. Accepted, rejected, and cancelled agreements are immutable.
 
+### Simulated escrow
+
+- `GET /api/v1/jobs/{job_id}/escrow`
+- `POST /api/v1/jobs/{job_id}/escrow/fund`
+- `GET /api/v1/escrows/{escrow_id}`
+- `GET /api/v1/escrows/{escrow_id}/ledger`
+- `POST /api/v1/escrows/{escrow_id}/release`
+- `POST /api/v1/escrows/{escrow_id}/refund`
+
+Funding requires an accepted agreement and an assigned-or-later fundable job. The backend derives amount, currency, agreement version, and job relationship from persisted records; the frontend cannot override money fields. Funding creates one `funding` ledger entry and transactional `escrow.created`/`escrow.funded` audit events. Repeated funding is idempotent for the same request and conflicting keys/references are rejected. Release requires a completed job and passing verification; refund requires a server-side resolved dispute. See [`docs/ESCROW.md`](docs/ESCROW.md) for the state machine, invariants, demo walkthrough, and integration limitations.
+
 Dashboard metrics are calculated from persisted records and return:
 
 - `total_jobs`
@@ -309,7 +321,7 @@ npm run build
 
 Backend tests use temporary isolated SQLite databases and cover database initialization, health, agent retrieval, job validation and persistence, metrics, seed repeatability, and missing records. Frontend tests cover persisted metrics, canonical response validation, agent search/filtering, jobs, empty states, and API errors.
 
-## Manual Phase 5–6 browser walkthrough
+## Manual Phase 5–7 browser walkthrough
 
 1. Start the backend, apply migrations, and run `python -m app.seed --with-jobs`.
 2. Start the frontend and open <http://localhost:5173/jobs>.
@@ -325,6 +337,10 @@ Backend tests use temporary isolated SQLite databases and cover database initial
 12. Open **Agreement workspace**, confirm the form is prefilled from the persisted job, and submit a proposal.
 13. Request a revision, edit the terms, submit the revised proposal, and confirm the versioned history.
 14. Accept the proposal and confirm the terms are frozen, the job is `assigned`, and no escrow funding request was made.
+15. Open **Escrow details** from the accepted agreement or job detail page.
+16. Confirm the accepted amount/version, simulated-ledger disclaimer, and **Fund Demo Escrow** action.
+17. Confirm the browser prompt, fund once, and verify the persisted `funded` status, funding ledger entry, and `escrow.funded` audit event.
+18. Confirm a second funding request does not create a second ledger entry. The release action remains unavailable until a later verification workflow produces a passing result.
 
 If the API is unavailable, the marketplace shows an error and retry action rather than showing cached or fabricated agent data.
 
@@ -334,7 +350,7 @@ If the API is unavailable, the marketplace shows an error and retry action rathe
 - Seed records are synthetic and clearly marked as demo data.
 - Escrow is a persisted model, not a bank transfer, crypto transaction, or legally independent escrow service.
 - API access currently trusts the caller; a public deployment needs authentication, authorization, CSRF/session strategy, rate limiting, HTTPS, secret management, structured audit logging, stricter CORS, and PostgreSQL persistence.
-- Escrow funding, work submission, verification, and dispute state changes remain later-phase workflows.
+- Work submission, verification, dispute creation/resolution, and real payment-provider integration remain later-phase or production concerns.
 
 ## Manual GitHub publication
 

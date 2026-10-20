@@ -196,6 +196,7 @@ class Escrow(Base):
     funded_amount: Mapped[Decimal | None] = mapped_column(MONEY)
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    accepted_agreement_version: Mapped[int | None] = mapped_column(Integer)
     provider_reference: Mapped[str | None] = mapped_column(String(160))
     funded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -208,11 +209,38 @@ class Escrow(Base):
     ledger_entries: Mapped[list["LedgerEntry"]] = relationship(back_populates="escrow", cascade="all, delete-orphan")
     disputes: Mapped[list["Dispute"]] = relationship(back_populates="escrow")
 
+    @property
+    def agreement_version(self) -> int | None:
+        """Response-friendly alias for the frozen agreement version."""
+
+        return self.accepted_agreement_version
+
+    @property
+    def accepted_amount(self) -> Decimal:
+        """The amount copied from the accepted agreement."""
+
+        return self.amount
+
+    @property
+    def accepted_currency(self) -> str:
+        """The currency copied from the accepted agreement."""
+
+        return self.currency
+
+    @property
+    def funding_state(self) -> str:
+        from app.escrow_states import funding_state
+
+        return funding_state(self.status)
+
 
 class LedgerEntry(Base):
     __tablename__ = "ledger_entries"
     __table_args__ = (
-        CheckConstraint("entry_type IN ('deposit', 'hold', 'release', 'refund', 'fee')", name="ck_ledger_entries_type"),
+        CheckConstraint(
+            "entry_type IN ('deposit', 'funding', 'hold', 'release', 'refund', 'fee')",
+            name="ck_ledger_entries_type",
+        ),
         CheckConstraint("amount > 0", name="ck_ledger_entries_amount_positive"),
         CheckConstraint("currency IN ('USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD')", name="ck_ledger_entries_currency"),
         UniqueConstraint("escrow_id", "idempotency_key", name="uq_ledger_entries_escrow_idempotency_key"),
@@ -221,6 +249,9 @@ class LedgerEntry(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     escrow_id: Mapped[int] = mapped_column(ForeignKey("escrows.id"), nullable=False)
+    # Nullable for legacy ledger history. New financial entries always carry
+    # the owning job id so job-level audit and ledger reads remain consistent.
+    job_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.id"))
     idempotency_key: Mapped[str] = mapped_column(
         String(160), nullable=False, default=lambda: f"ledger-{uuid4().hex}"
     )
@@ -231,6 +262,7 @@ class LedgerEntry(Base):
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
 
     escrow: Mapped[Escrow] = relationship(back_populates="ledger_entries")
+    job: Mapped[Job | None] = relationship()
 
 
 class Submission(Base):

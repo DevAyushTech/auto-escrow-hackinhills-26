@@ -442,9 +442,14 @@ class EscrowResponse(APIModel):
     id: int
     job_id: int
     agreement_id: int
-    funded_amount: Decimal
+    accepted_agreement_version: int | None = None
+    agreement_version: int | None = None
+    accepted_amount: Decimal
+    accepted_currency: StrictStr
+    funded_amount: Decimal | None = None
     currency: StrictStr
     status: Literal["pending", "funded", "held", "released", "refunded", "disputed"]
+    funding_state: Literal["not_funded", "funded", "held", "released", "refunded", "disputed"]
     provider_reference: StrictStr | None = None
     funded_at: datetime | None = None
     released_at: datetime | None = None
@@ -459,12 +464,51 @@ class EscrowResponse(APIModel):
 class LedgerEntryResponse(APIModel):
     id: int
     escrow_id: int
+    job_id: int | None = None
     idempotency_key: StrictStr
-    entry_type: Literal["deposit", "hold", "release", "refund", "fee"]
+    entry_type: Literal["deposit", "funding", "hold", "release", "refund", "fee"]
     amount: Decimal
     currency: StrictStr
     reference: StrictStr | None = None
     occurred_at: datetime
+
+
+class EscrowFundRequest(APIModel):
+    """Safe funding metadata; amount and currency always come from the agreement."""
+
+    idempotency_key: StrictStr | None = Field(default=None, min_length=1, max_length=160)
+    reference: StrictStr | None = Field(default=None, min_length=1, max_length=160)
+
+    @model_validator(mode="before")
+    @classmethod
+    def discard_derived_money_fields(cls, value: Any) -> Any:
+        """Ignore legacy/client money fields rather than trusting them.
+
+        The fields are intentionally absent from the typed contract.  Dropping
+        them here keeps old demo callers harmless while ensuring the accepted
+        agreement remains the sole source of amount and currency.
+        """
+
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        normalized.pop("amount", None)
+        normalized.pop("currency", None)
+        return normalized
+
+    @field_validator("idempotency_key", "reference", mode="before")
+    @classmethod
+    def normalize_funding_metadata(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return value
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("funding metadata must not be blank")
+        if any(ord(character) < 32 or ord(character) == 127 for character in normalized):
+            raise ValueError("funding metadata contains unsupported control characters")
+        return normalized
 
 
 class SubmissionResponse(APIModel):

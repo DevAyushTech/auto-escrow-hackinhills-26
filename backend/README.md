@@ -1,6 +1,6 @@
 # Auto Escrow backend
 
-FastAPI + SQLAlchemy 2 + Alembic backend for the Auto Escrow Phase 2/3 data/API foundation, Phase 4 job management flow, Phase 5 deterministic agent matching, and Phase 6 agreement negotiation. SQLite is the default local database; PostgreSQL is supported through the configured SQLAlchemy URL.
+FastAPI + SQLAlchemy 2 + Alembic backend for the Auto Escrow Phase 2/3 data/API foundation, Phase 4 job management flow, Phase 5 deterministic agent matching, Phase 6 agreement negotiation, and Phase 7 simulated escrow ledger/payment lifecycle. SQLite is the default local database; PostgreSQL is supported through the configured SQLAlchemy URL.
 
 ## Setup
 
@@ -38,7 +38,8 @@ The current chain is:
   -> 0004_optional_job_requester
   -> 0005_audit_event_description
   -> 0006_matching_results
-  -> 0007_agreement_negotiation (head)
+  -> 0007_agreement_negotiation
+  -> 0008_simulated_escrow_lifecycle (head)
 ```
 
 Run:
@@ -104,7 +105,11 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 - `POST /api/v1/agreements/{agreement_id}/accept`
 - `POST /api/v1/agreements/{agreement_id}/reject`
 - `POST /api/v1/agreements/{agreement_id}/cancel`
+- `POST /api/v1/jobs/{job_id}/escrow/fund`
 - `GET /api/v1/jobs/{job_id}/escrow`
+- `GET /api/v1/escrows/{escrow_id}/ledger`
+- `POST /api/v1/escrows/{escrow_id}/release`
+- `POST /api/v1/escrows/{escrow_id}/refund`
 - `GET /api/v1/jobs/{job_id}/events`
 - `GET /api/v1/agreements/{agreement_id}`
 - `GET /api/v1/escrows/{escrow_id}`
@@ -164,6 +169,46 @@ job transition policy, records an audit event, and does not fund escrow.
 Repeated acceptance is idempotent; accepted, rejected, and cancelled
 agreements cannot be revised or changed again.
 
+## Phase 7 simulated escrow lifecycle
+
+Funding is a server-derived operation. A job must have an accepted agreement,
+the agreement must belong to that job and have an `accepted_version`, and the
+job must be assigned or later in its lifecycle. The fund request may contain
+only optional `idempotency_key` and safe `reference` metadata; amount and
+currency are copied from the accepted agreement, so client-supplied money
+fields cannot change the financial effect.
+
+```http
+POST /api/v1/jobs/{job_id}/escrow/fund
+Content-Type: application/json
+
+{"idempotency_key": "demo-funding-1", "reference": "synthetic-payment"}
+```
+
+The first funding operation creates an escrow in persisted `funded` status and
+one canonical `funding` ledger entry with a positive fixed two-decimal amount,
+currency, job id, and idempotency key. Existing `pending` escrows and legacy
+`deposit` ledger entries remain readable. Repeating the same request returns
+the existing financial effect; a conflicting idempotency key or reference is
+rejected. `GET /api/v1/jobs/{job_id}/escrow` continues to return `204` when no
+escrow exists, while escrow detail includes the accepted agreement version,
+accepted amount/currency, funding state, and ledger entries.
+
+The escrow state machine is centralized in `app/escrow_states.py`. It permits
+`pending -> funded`, `funded -> held/released/refunded/disputed`, and
+`held -> released/refunded/disputed`. A disputed escrow can settle only after
+a persisted resolved dispute explicitly authorizes the requested release or
+refund. Release is also guarded by a completed job and a passed verification;
+with the current Phase 7 data model it returns `409 verification is required`
+until those conditions exist. Refund is not an unrestricted client operation
+and returns `409 refund requires a valid dispute resolution` without an
+authoritative resolved dispute. Settlement entries are atomic and cannot
+exceed the funded balance or combine released and refunded effects.
+
+Funding, ledger persistence, state changes, and `escrow.created`/
+`escrow.funded` audit events commit together or roll back together. Release
+records `escrow.settled`; refund records `escrow.refunded`.
+
 ## Tests and checks
 
 ```powershell
@@ -178,3 +223,7 @@ Tests use temporary SQLite databases and cover health, schema initialization, ag
 They also cover selected-agent agreement creation, default and invalid terms,
 versioned negotiation history, revision transitions, acceptance freezing and
 idempotency, terminal transitions, agreement audit events, and missing history.
+Phase 7 tests cover funding prerequisites, server-derived money fields,
+idempotent and conflicting funding requests, ledger persistence, centralized
+escrow transitions, guarded release/refund operations, balance limits, audit
+events, and rollback after a forced transaction failure.

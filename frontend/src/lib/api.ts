@@ -240,11 +240,16 @@ export type AgreementActionResponseDto = AgreementDto
 
 export type EscrowStatus = 'pending' | 'funded' | 'held' | 'released' | 'refunded' | 'disputed'
 
+export type LedgerEntryType = 'funding' | 'deposit' | 'hold' | 'release' | 'refund' | 'fee'
+
 export type LedgerEntryDto = {
   id: number
   escrow_id: number
+  /** Optional on older ledger responses that only identify the escrow. */
+  job_id?: number | null
   idempotency_key: string
-  entry_type: 'deposit' | 'hold' | 'release' | 'refund' | 'fee'
+  /** `deposit` is retained for compatibility with the legacy escrow response. */
+  entry_type: LedgerEntryType
   amount: string
   currency: string
   reference: string | null
@@ -510,12 +515,18 @@ function parseJobs(payload: unknown): JobListResponseDto {
 
 const agreementStatuses: AgreementStatus[] = ['draft', 'proposed', 'revision_requested', 'revision_pending', 'accepted', 'rejected', 'expired', 'cancelled']
 const escrowStatuses: EscrowStatus[] = ['pending', 'funded', 'held', 'released', 'refunded', 'disputed']
-const ledgerEntryTypes: LedgerEntryDto['entry_type'][] = ['deposit', 'hold', 'release', 'refund', 'fee']
+const ledgerEntryTypes: LedgerEntryType[] = ['funding', 'deposit', 'hold', 'release', 'refund', 'fee']
+
+/** Money values stay strings at the API boundary; reject exponent and unsafe decimal forms. */
+function safeFixedPointString(value: unknown): value is string {
+  return typeof value === 'string' && /^(?:0|[1-9]\d{0,15})(?:\.\d{1,2})?$/.test(value)
+}
 
 function parseAgreementHistoryEntry(value: unknown): AgreementHistoryEntryDto | undefined {
   if (!isRecord(value)) return undefined
   if (value.id !== undefined && !requiredInteger(value.id)) return undefined
   if (value.version !== undefined && !requiredInteger(value.version)) return undefined
+  if (value.proposal_version !== undefined && !requiredInteger(value.proposal_version)) return undefined
   if (value.status !== undefined && !agreementStatuses.includes(value.status as AgreementStatus)) return undefined
   if (value.proposed_budget !== undefined && !requiredString(value.proposed_budget)) return undefined
   if (value.proposed_deadline !== undefined && value.proposed_deadline !== null && !requiredString(value.proposed_deadline)) return undefined
@@ -550,11 +561,12 @@ function agreementResponseValue(payload: unknown): unknown {
 
 function parseAgreement(payload: unknown): AgreementDto {
   const root = agreementResponseValue(payload)
-  if (!isRecord(root) || !requiredInteger(root.id) || !requiredInteger(root.job_id) || !requiredInteger(root.requester_agent_id) || !requiredInteger(root.executor_agent_id) || !requiredString(root.proposed_budget) || (root.proposed_deadline !== null && !requiredString(root.proposed_deadline)) || !requiredString(root.currency) || !agreementStatuses.includes(root.status as AgreementStatus) || !isRecord(root.terms) || !requiredString(root.amount) || !requiredString(root.created_at) || !requiredString(root.updated_at) || (root.accepted_at !== null && !requiredString(root.accepted_at))) throw contractError('agreement')
+  if (!isRecord(root) || !requiredInteger(root.id) || !requiredInteger(root.job_id) || !requiredInteger(root.requester_agent_id) || !requiredInteger(root.executor_agent_id) || !safeFixedPointString(root.proposed_budget) || (root.proposed_deadline !== null && !requiredString(root.proposed_deadline)) || !requiredString(root.currency) || !agreementStatuses.includes(root.status as AgreementStatus) || !isRecord(root.terms) || !safeFixedPointString(root.amount) || !requiredString(root.created_at) || !requiredString(root.updated_at) || (root.accepted_at !== null && !requiredString(root.accepted_at))) throw contractError('agreement')
   const historyValue = root.history ?? root.proposal_history
   const history = historyValue === undefined ? [] : parseAgreementHistory(historyValue)
   if (root.proposal_version !== undefined && (!requiredInteger(root.proposal_version) || root.proposal_version < 1)) throw contractError('agreement')
-  if (root.accepted_version !== undefined && root.accepted_version !== null && (!requiredInteger(root.accepted_version) || root.accepted_version < 1)) throw contractError('agreement')
+  const acceptedVersion = root.accepted_version ?? root.accepted_agreement_version
+  if (acceptedVersion !== undefined && acceptedVersion !== null && (!requiredInteger(acceptedVersion) || acceptedVersion < 1)) throw contractError('agreement')
   return {
     id: root.id,
     job_id: root.job_id,
@@ -566,7 +578,7 @@ function parseAgreement(payload: unknown): AgreementDto {
     status: root.status as AgreementStatus,
     terms: root.terms as AgreementTermsDto,
     proposal_version: root.proposal_version as number | undefined,
-    accepted_version: root.accepted_version as number | null | undefined,
+    accepted_version: acceptedVersion as number | null | undefined,
     history,
     proposal_history: history,
     amount: root.amount,
@@ -577,15 +589,37 @@ function parseAgreement(payload: unknown): AgreementDto {
 }
 
 function parseLedgerEntry(value: unknown): LedgerEntryDto | undefined {
-  if (!isRecord(value) || !requiredInteger(value.id) || !requiredInteger(value.escrow_id) || !requiredString(value.idempotency_key) || !ledgerEntryTypes.includes(value.entry_type as LedgerEntryDto['entry_type']) || !requiredString(value.amount) || !requiredString(value.currency) || (value.reference !== null && !requiredString(value.reference)) || !requiredString(value.occurred_at)) return undefined
-  return { id: value.id, escrow_id: value.escrow_id, idempotency_key: value.idempotency_key, entry_type: value.entry_type as LedgerEntryDto['entry_type'], amount: value.amount, currency: value.currency, reference: value.reference, occurred_at: value.occurred_at }
+  if (!isRecord(value) || !requiredInteger(value.id) || !requiredInteger(value.escrow_id) || !requiredString(value.idempotency_key) || !ledgerEntryTypes.includes(value.entry_type as LedgerEntryType) || !safeFixedPointString(value.amount) || !requiredString(value.currency) || (value.reference !== null && value.reference !== undefined && !requiredString(value.reference)) || !requiredString(value.occurred_at)) return undefined
+  if (value.job_id !== undefined && !requiredNullableInteger(value.job_id)) return undefined
+  const entry: LedgerEntryDto = { id: value.id, escrow_id: value.escrow_id, idempotency_key: value.idempotency_key, entry_type: value.entry_type as LedgerEntryType, amount: value.amount, currency: value.currency, reference: value.reference === undefined ? null : value.reference, occurred_at: value.occurred_at }
+  if (value.job_id !== undefined) entry.job_id = value.job_id
+  return entry
 }
 
 function parseEscrow(payload: unknown): EscrowDto {
-  if (!isRecord(payload) || !requiredInteger(payload.id) || !requiredInteger(payload.job_id) || !requiredInteger(payload.agreement_id) || !requiredString(payload.funded_amount) || !requiredString(payload.currency) || !escrowStatuses.includes(payload.status as EscrowStatus) || (payload.provider_reference !== null && !requiredString(payload.provider_reference)) || (payload.funded_at !== null && !requiredString(payload.funded_at)) || (payload.released_at !== null && !requiredString(payload.released_at)) || (payload.settled_at !== null && !requiredString(payload.settled_at)) || !requiredString(payload.created_at) || !requiredString(payload.updated_at) || !requiredString(payload.amount) || !Array.isArray(payload.ledger_entries)) throw contractError('escrow')
-  const ledgerEntries = payload.ledger_entries.map(parseLedgerEntry)
+  const root = isRecord(payload) && isRecord(payload.escrow) ? payload.escrow : isRecord(payload) && isRecord(payload.data) && isRecord(payload.data.escrow) ? payload.data.escrow : isRecord(payload) && isRecord(payload.data) ? payload.data : payload
+  if (!isRecord(root)) throw contractError('escrow')
+  const fundedAmount = root.funded_amount ?? root.amount
+  const amount = root.amount ?? root.funded_amount
+  const ledgerEntriesValue = root.ledger_entries ?? []
+  if (!requiredInteger(root.id) || !requiredInteger(root.job_id) || !requiredInteger(root.agreement_id) || !safeFixedPointString(fundedAmount) || !requiredString(root.currency) || !escrowStatuses.includes(root.status as EscrowStatus) || (root.provider_reference !== null && root.provider_reference !== undefined && !requiredString(root.provider_reference)) || (root.funded_at !== null && root.funded_at !== undefined && !requiredString(root.funded_at)) || (root.released_at !== null && root.released_at !== undefined && !requiredString(root.released_at)) || (root.settled_at !== null && root.settled_at !== undefined && !requiredString(root.settled_at)) || !requiredString(root.created_at) || !requiredString(root.updated_at) || !safeFixedPointString(amount) || !Array.isArray(ledgerEntriesValue)) throw contractError('escrow')
+  const ledgerEntries = ledgerEntriesValue.map(parseLedgerEntry)
   if (ledgerEntries.some((item): item is undefined => item === undefined)) throw contractError('escrow')
-  return { id: payload.id, job_id: payload.job_id, agreement_id: payload.agreement_id, funded_amount: payload.funded_amount, currency: payload.currency, status: payload.status as EscrowStatus, provider_reference: payload.provider_reference, funded_at: payload.funded_at, released_at: payload.released_at, settled_at: payload.settled_at, created_at: payload.created_at, updated_at: payload.updated_at, amount: payload.amount, ledger_entries: ledgerEntries as LedgerEntryDto[] }
+  return { id: root.id, job_id: root.job_id, agreement_id: root.agreement_id, funded_amount: fundedAmount, currency: root.currency, status: root.status as EscrowStatus, provider_reference: root.provider_reference === undefined ? null : root.provider_reference, funded_at: root.funded_at === undefined ? null : root.funded_at, released_at: root.released_at === undefined ? null : root.released_at, settled_at: root.settled_at === undefined ? null : root.settled_at, created_at: root.created_at, updated_at: root.updated_at, amount, ledger_entries: ledgerEntries as LedgerEntryDto[] }
+}
+
+function parseLedger(payload: unknown): LedgerEntryDto[] {
+  if (payload === undefined) return []
+  const root = isRecord(payload) && payload.data !== undefined ? payload.data : payload
+  const values = Array.isArray(root)
+    ? root
+    : isRecord(root)
+      ? root.entries ?? root.items ?? root.ledger_entries ?? root.ledger
+      : undefined
+  if (!Array.isArray(values)) throw contractError('escrow ledger')
+  const entries = values.map(parseLedgerEntry)
+  if (entries.some((item): item is undefined => item === undefined)) throw contractError('escrow ledger')
+  return entries as LedgerEntryDto[]
 }
 
 function parseJobEvents(payload: unknown): JobEventDto[] {
@@ -786,6 +820,8 @@ export const api = {
   rejectAgreement: (agreementId: number) => request<unknown>(`/api/v1/agreements/${agreementId}/reject`, { method: 'POST' }).then(parseAgreement),
   cancelAgreement: (agreementId: number) => request<unknown>(`/api/v1/agreements/${agreementId}/cancel`, { method: 'POST' }).then(parseAgreement),
   jobEscrow: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/escrow`).then((payload) => payload === undefined ? null : parseEscrow(payload)),
+  fundDemoEscrow: (jobId: number, idempotencyKey?: string) => request<unknown>(`/api/v1/jobs/${jobId}/escrow/fund`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(idempotencyKey ? { idempotency_key: idempotencyKey } : {}) }).then(parseEscrow),
+  escrowLedger: (escrowId: number) => request<unknown>(`/api/v1/escrows/${escrowId}/ledger`).then(parseLedger),
   jobEvents: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/events`).then(parseJobEvents),
 }
 
