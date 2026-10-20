@@ -108,11 +108,21 @@ export function DisputeCreatePage() {
       setError('A related agent ID is required in this development-only demo.')
       return
     }
+    const normalizedReason = reason.trim()
+    const normalizedDescription = description.trim()
+    if (!normalizedReason) {
+      setError('A dispute reason is required.')
+      return
+    }
+    if (!normalizedDescription) {
+      setError('A dispute description is required.')
+      return
+    }
     if (!window.confirm('Open this dispute? The backend will move the job and escrow into dispute protection.')) return
     setAction(true)
     setError(null)
     try {
-      const dispute = await api.createDispute(jobId, { escrow_id: state.data.escrow.id, category, reason: reason.trim(), description: description.trim(), evidence: parsedEvidence, raised_by_agent_id: parsedAgentId })
+      const dispute = await api.createDispute(jobId, { escrow_id: state.data.escrow.id, category, reason: normalizedReason, description: normalizedDescription, evidence: parsedEvidence, raised_by_agent_id: parsedAgentId })
       navigate(`/disputes/${dispute.id}`)
     } catch (err: unknown) {
       setError(errorMessage(err, 'The dispute could not be created.'))

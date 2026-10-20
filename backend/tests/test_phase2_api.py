@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+import pytest
 from sqlalchemy import inspect
 
 from app.config import Settings, get_database_url
@@ -202,6 +203,15 @@ def test_seed_is_repeatable_and_creates_six_synthetic_agents(monkeypatch, sessio
         assert db.query(Job).filter(Job.required_skills.is_not(None)).count() == 2
     finally:
         db.close()
+
+
+def test_seed_is_disabled_outside_demo_environments(monkeypatch, session_factory) -> None:
+    import app.seed as seed_module
+
+    monkeypatch.setattr(seed_module, "SessionLocal", session_factory)
+    monkeypatch.setattr(seed_module, "get_settings", lambda: type("Settings", (), {"app_env": "production"})())
+    with pytest.raises(RuntimeError, match="disabled outside development and test"):
+        seed_demo_data()
 
 
 def test_missing_records_and_missing_related_rows_have_explicit_responses(client, db_session) -> None:

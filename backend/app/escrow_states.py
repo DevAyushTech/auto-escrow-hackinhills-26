@@ -68,8 +68,6 @@ def can_transition(
         return False
     if current != "disputed":
         return True
-    if target in {"funded", "held"}:
-        return True
     return has_valid_resolution
 
 

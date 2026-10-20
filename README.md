@@ -13,7 +13,7 @@ Implemented:
 - Environment-backed settings and local-origin CORS.
 - SQLAlchemy 2 models with relationships, foreign keys, indexes, uniqueness constraints, and database checks.
 - SQLite local database with PostgreSQL-compatible URL support.
-- Alembic revisions `0001_phase1_foundation`, `0002_escrow_domain`, `0003_explicit_domain_fields`, `0004_optional_job_requester`, `0005_audit_event_description`, `0006_matching_results`, `0007_agreement_negotiation`, `0008_simulated_escrow_lifecycle`, and `0009_dispute_workflow`.
+- Alembic revisions `0001_phase1_foundation`, `0002_escrow_domain`, `0003_explicit_domain_fields`, `0004_optional_job_requester`, `0005_audit_event_description`, `0006_matching_results`, `0007_agreement_negotiation`, `0008_simulated_escrow_lifecycle`, `0009_dispute_workflow`, and `0010_harden_ledger_idempotency`.
 - Decimal-safe `NUMERIC(18,2)` money fields and fixed-point API serialization.
 - Validated Pydantic request/response contracts.
 - Versioned FastAPI endpoints for agents, jobs, agreements, escrow lookup, audit activity, and persisted dashboard metrics.
@@ -147,7 +147,7 @@ To also seed two synthetic jobs:
 python -m app.seed --with-jobs
 ```
 
-The command is idempotent. It updates deterministic demo records and does not create duplicates. It never resets or drops the database.
+The command is idempotent. It updates deterministic demo records and does not create duplicates. It never resets or drops the database. It is refused unless `APP_ENV` is `development` or `test`; never point it at a production database.
 
 ### Start the backend
 

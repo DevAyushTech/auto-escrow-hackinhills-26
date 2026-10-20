@@ -241,6 +241,12 @@ def test_failed_verification_explains_checks_and_allows_a_retry_without_release(
     retry = _submit(client, job, "approved synthetic result", notes="Retry after the failed term check.")
     assert retry["version"] == first["version"] + 1
     assert client.get(f"/api/v1/jobs/{job.id}").json()["status"] == "submitted"
+    retry_execution = client.get(f"/api/v1/jobs/{job.id}/execution")
+    assert retry_execution.status_code == 200
+    assert retry_execution.json()["can_verify"] is True
+    passed_retry = client.post(f"/api/v1/jobs/{job.id}/verify")
+    assert passed_retry.status_code == 200
+    assert passed_retry.json()["overall_result"] == "passed"
     events = db_session.scalars(select(AuditEvent).where(AuditEvent.job_id == job.id).order_by(AuditEvent.id)).all()
     assert "verification.failed" in [event.event_type for event in events]
     assert "execution.retry_requested" in [event.event_type for event in events]
@@ -341,3 +347,43 @@ def test_json_schema_rules_and_settlement_dashboard_are_persisted(client, db_ses
     assert dashboard.json()["jobs_eligible_for_settlement"] == 1
     assert dashboard.json()["recent_submissions"][0]["job_id"] == job.id
     assert dashboard.json()["recent_verifications"][0]["overall_result"] == "passed"
+
+
+def test_nested_json_schema_constraints_are_not_silently_ignored(client, db_session) -> None:
+    job, _agreement, _escrow = _funded(client, db_session, criteria=["Output must be valid JSON"], suffix="-nested-schema")
+    agreement = db_session.query(Job).filter(Job.id == job.id).one().agreement
+    assert agreement is not None
+    agreement.terms = {
+        **agreement.terms,
+        "verification_rules": {
+            "json_schema": {
+                "type": "object",
+                "properties": {"summary": {"type": "string", "minLength": 10}},
+            }
+        },
+    }
+    db_session.commit()
+    _start(client, job)
+    _submit(client, job, '{"summary":"x"}')
+    result = client.post(f"/api/v1/jobs/{job.id}/verify")
+    assert result.status_code == 200
+    assert result.json()["overall_result"] == "manual_review"
+    assert any("unsupported keywords" in reason for reason in result.json()["reasons"])
+
+
+def test_settlement_rejects_an_underfunded_ledger(client, db_session) -> None:
+    job, _agreement, escrow = _funded(client, db_session, criteria=["Required terms: approved"], suffix="-ledger-reconcile")
+    ledger = db_session.scalars(select(LedgerEntry).where(LedgerEntry.escrow_id == escrow["id"])).one()
+    ledger.amount = Decimal("1.00")
+    db_session.commit()
+    _start(client, job)
+    _submit(client, job, "approved synthetic result")
+    passed = client.post(f"/api/v1/jobs/{job.id}/verify")
+    assert passed.status_code == 200
+    release = client.post(f"/api/v1/escrows/{escrow['id']}/release")
+    assert release.status_code == 409
+    assert "funding ledger" in release.json()["detail"]
+    ledger_rows = client.get(f"/api/v1/escrows/{escrow['id']}/ledger").json()
+    assert len(ledger_rows) == 1
+    assert ledger_rows[0]["entry_type"] == "funding"
+    assert ledger_rows[0]["amount"] == "1.00"

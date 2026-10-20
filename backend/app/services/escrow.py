@@ -183,6 +183,32 @@ def _funding_entries(db: Session, escrow_id: int) -> list[LedgerEntry]:
     )
 
 
+def _validate_funding_ledger(
+    escrow: Escrow,
+    entries: list[LedgerEntry],
+    *,
+    expected_amount: Decimal | None = None,
+    require_funded_amount: bool = True,
+) -> Decimal:
+    """Validate the persisted funding side before returning or settling escrow."""
+
+    if require_funded_amount and escrow.funded_amount is None:
+        raise EscrowConsistencyError("funded escrow is missing its funded amount")
+    funding_total = Decimal("0.00")
+    for entry in entries:
+        if entry.currency != escrow.currency:
+            raise EscrowConsistencyError("escrow ledger currency does not match the escrow currency")
+        if entry.job_id not in (None, escrow.job_id):
+            raise EscrowConsistencyError("escrow ledger entry belongs to a different job")
+        if entry.entry_type in FUNDING_ENTRY_TYPES:
+            funding_total += _money(entry.amount)
+    if expected_amount is not None and funding_total != _money(expected_amount):
+        raise EscrowConsistencyError("existing escrow funding ledger does not match the accepted agreement")
+    if require_funded_amount and funding_total != _money(escrow.funded_amount):
+        raise EscrowConsistencyError("escrow funding ledger does not reconcile with the funded amount")
+    return funding_total
+
+
 def _validate_escrow_consistency(
     escrow: Escrow,
     agreement: Agreement,
@@ -269,12 +295,40 @@ def fund_escrow(
             all_entries = get_ledger_entries(db, escrow.id)
             if escrow.status != "pending":
                 _validate_idempotent_request(payload, all_entries)
+                _validate_funding_ledger(escrow, all_entries)
                 return get_escrow(db, escrow.id) or escrow
             if entries:
-                # A legacy/demo row may have a funding deposit but not the
-                # matching lifecycle status. Do not create another financial
-                # effect; return the existing record consistently.
                 _validate_idempotent_request(payload, all_entries)
+                _validate_funding_ledger(
+                    escrow,
+                    all_entries,
+                    expected_amount=amount,
+                    require_funded_amount=False,
+                )
+                # A legacy/demo row may have a funding deposit but not the
+                # matching lifecycle status. Reconcile it without creating a
+                # second financial effect.
+                escrow.accepted_agreement_version = agreement.accepted_version
+                escrow.funded_amount = amount
+                escrow.funded_at = escrow.funded_at or utc_now()
+                transition_escrow(escrow, "funded")
+                record_event(
+                    db,
+                    "escrow.funded",
+                    job_id=job.id,
+                    actor_agent_id=agreement.requester_agent_id,
+                    description="escrow.funded",
+                    data={
+                        "escrow_id": escrow.id,
+                        "agreement_id": agreement.id,
+                        "agreement_version": agreement.accepted_version,
+                        "amount": format(amount, ".2f"),
+                        "currency": currency,
+                        "status": escrow.status,
+                        "reconciled_legacy_ledger": True,
+                    },
+                )
+                _commit_or_conflict(db)
                 return get_escrow(db, escrow.id) or escrow
         else:
             escrow = Escrow(
@@ -404,7 +458,7 @@ def _settle_escrow(
         escrow = db.scalar(select(Escrow).where(Escrow.id == escrow_id).with_for_update())
         if escrow is None:
             raise EscrowNotFoundError("escrow not found")
-        job = db.get(Job, escrow.job_id)
+        job = db.scalar(select(Job).where(Job.id == escrow.job_id).with_for_update())
         if job is None:
             raise JobNotFoundForEscrowError("job not found")
         _terminal_conflict(escrow)
@@ -428,6 +482,7 @@ def _settle_escrow(
             raise RefundNotPermittedError("refund requires a valid dispute resolution")
 
         entries = get_ledger_entries(db, escrow.id)
+        _validate_funding_ledger(escrow, entries)
         remaining = (
             remaining_releasable_balance(escrow, entries)
             if target == "released"

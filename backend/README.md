@@ -41,7 +41,8 @@ The current chain is:
   -> 0006_matching_results
   -> 0007_agreement_negotiation
   -> 0008_simulated_escrow_lifecycle
-  -> 0009_dispute_workflow (head)
+   -> 0009_dispute_workflow
+   -> 0010_harden_ledger_idempotency (head)
 ```
 
 Run:
@@ -77,7 +78,7 @@ Load agents plus two synthetic jobs:
 python -m app.seed --with-jobs
 ```
 
-The command is repeatable and does not reset existing records. Seed records are marked as synthetic demo data in their metadata.
+The command is repeatable and does not reset existing records. Seed records are marked as synthetic demo data in their metadata. It refuses to run unless `APP_ENV` is `development` or `test`; never point it at a production database.
 
 ## Run
 

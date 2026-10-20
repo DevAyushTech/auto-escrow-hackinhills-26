@@ -146,24 +146,12 @@ def _check_json_schema(value: Any, schema: Any) -> tuple[str, str, Any]:
         for field, field_schema in properties.items():
             if field not in value or not isinstance(field_schema, dict):
                 continue
-            field_type = field_schema.get("type")
-            if field_type in type_matches:
-                field_matches = {
-                    "object": isinstance(value[field], dict),
-                    "array": isinstance(value[field], list),
-                    "string": isinstance(value[field], str),
-                    "number": isinstance(value[field], (int, float)) and not isinstance(value[field], bool),
-                    "integer": isinstance(value[field], int) and not isinstance(value[field], bool),
-                    "boolean": isinstance(value[field], bool),
-                    "null": value[field] is None,
+            field_status, field_explanation, field_evidence = _check_json_schema(value[field], field_schema)
+            if field_status != "passed":
+                return field_status, f"JSON field {field!r}: {field_explanation}", {
+                    "field": field,
+                    "details": field_evidence,
                 }
-                if not field_matches[field_type]:
-                    return "failed", f"JSON field {field!r} has the wrong type.", {
-                        "field": field,
-                        "expected": field_type,
-                    }
-            elif field_type is not None:
-                return "manual_review", "The configured JSON schema has an unsupported property type.", {"field": field}
     return "passed", "The JSON output satisfies the configured schema subset.", {"schema_checked": True}
 
 

@@ -12,7 +12,7 @@ from app.models import Agent, Agreement, AuditEvent, Dispute, Escrow, Job, Submi
 from app.schemas import ExecutionResponse
 from app.services.audit import record_event
 from app.services.jobs import transition_job
-from app.services.verification import latest_submission, latest_verification
+from app.services.verification import latest_submission, verification_for_submission
 
 
 class ExecutionServiceError(Exception):
@@ -139,12 +139,15 @@ def get_execution(db: Session, job_id: int) -> ExecutionResponse:
     escrow = db.scalar(select(Escrow).where(Escrow.job_id == job.id))
     ready, start_reason, selected_agent_id = _prerequisites(db, job, agreement, escrow)
     latest = latest_submission(db, job.id)
-    verification = latest_verification(db, job.id)
+    # Verification belongs to an immutable submission.  Looking up the latest
+    # verification for the whole job would keep an old failed result attached
+    # to a newer retry submission and incorrectly hide the verify action.
+    verification = verification_for_submission(db, latest.id) if latest is not None else None
     can_start = job.status == "assigned" and ready
     can_submit = job.status == "in_progress" or (
         job.status == "under_review" and verification is not None and verification.overall_result == "failed"
     )
-    can_verify = job.status == "submitted" and latest is not None and latest_verification(db, job.id) is None
+    can_verify = job.status == "submitted" and latest is not None and verification is None
     submit_reason = (
         "Submit a work result for the local demo execution."
         if can_submit

@@ -191,7 +191,9 @@ def test_invalid_transitions_are_centralized() -> None:
     assert can_transition("held", "released")
     assert not can_transition("pending", "released")
     assert not can_transition("released", "refunded")
+    assert not can_transition("disputed", "funded")
     assert not can_transition("disputed", "refunded")
+    assert can_transition("disputed", "funded", has_valid_resolution=True)
     assert can_transition("disputed", "refunded", has_valid_resolution=True)
 
     escrow = Escrow(

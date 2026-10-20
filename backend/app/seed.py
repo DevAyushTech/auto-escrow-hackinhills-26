@@ -14,6 +14,7 @@ from decimal import Decimal
 from sqlalchemy import select
 
 from app.database import SessionLocal
+from app.config import get_settings
 from app.models import Agent, Job
 from app.services.audit import record_event
 
@@ -136,6 +137,9 @@ DEMO_JOBS = (
 
 def seed_demo_data(*, with_jobs: bool = False) -> dict[str, int]:
     """Insert demo rows if their deterministic keys are not present."""
+
+    if get_settings().app_env.lower() not in {"development", "test"}:
+        raise RuntimeError("demo seed data is disabled outside development and test environments")
 
     db = SessionLocal()
     created_agents = 0

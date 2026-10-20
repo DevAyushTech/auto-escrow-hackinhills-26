@@ -82,7 +82,7 @@ export function DisputeDetailPage() {
     setSuccess(null)
     try {
       await api.resolveDispute(state.data.id, resolution, rationale.trim())
-      setSuccess(`Dispute resolved with outcome: ${resolution}. Refreshed persisted records are shown below.`)
+      setSuccess(`Dispute resolved with outcome: ${resolution}. The dispute record is being reloaded; inspect the linked job escrow page for the current ledger state.`)
       refresh()
     } catch (err: unknown) { setError(errorMessage(err, 'Dispute resolution could not be completed.')) } finally { setAction(null) }
   }

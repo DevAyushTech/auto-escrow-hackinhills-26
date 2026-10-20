@@ -126,6 +126,16 @@ describe('Phase 7 professional simulated escrow', () => {
     expect(screen.queryByRole('button', { name: 'Fund Demo Escrow' })).not.toBeInTheDocument()
   })
 
+  it('preserves a pending escrow as unfunded and offers backend reconciliation', async () => {
+    const pending = { ...escrow, funded_amount: null, status: 'pending', funded_at: null, ledger_entries: [] }
+    stubApi(baseHandler({ currentEscrow: pending }))
+    renderEscrow()
+
+    expect(await screen.findByRole('heading', { name: 'Pending escrow record' })).toBeInTheDocument()
+    expect(screen.getByText('Not funded · USD')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Complete Demo Funding' })).toBeInTheDocument()
+  })
+
   it('confirms funding, sends only idempotency data, and prevents duplicate submissions', async () => {
     const user = userEvent.setup()
     const requests: { url: string; method?: string; body?: Record<string, unknown> }[] = []

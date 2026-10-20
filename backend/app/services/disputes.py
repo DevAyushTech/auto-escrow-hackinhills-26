@@ -266,7 +266,7 @@ def _restore_after_rejection(db: Session, dispute: Dispute, job: Job, escrow: Es
     try:
         transition_job(job, target_job_status)
         target_escrow_status = dispute.previous_escrow_status or "funded"
-        transition_escrow(escrow, target_escrow_status)
+        transition_escrow(escrow, target_escrow_status, has_valid_resolution=True)
     except (InvalidJobTransition, InvalidEscrowTransition) as exc:
         raise DisputeStateConflictError(f"dispute cannot be rejected and restored: {exc}") from exc
 
