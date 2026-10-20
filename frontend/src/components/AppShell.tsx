@@ -18,7 +18,7 @@ export function AppShell() {
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [apiState, setApiState] = useState<'loading' | 'connected' | 'error'>('loading')
-  const title = titles[location.pathname] ?? 'Workspace'
+  const title = titles[location.pathname] ?? (location.pathname.startsWith('/agents/') ? 'Agent details' : location.pathname.startsWith('/jobs/') ? 'Job details' : 'Workspace')
 
   useEffect(() => {
     let active = true

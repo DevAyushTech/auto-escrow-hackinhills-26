@@ -30,6 +30,9 @@ export type AgentSummaryDto = {
   created_at: string
 }
 
+/** The detail endpoint currently returns the canonical agent summary shape. */
+export type AgentDetailDto = AgentSummaryDto
+
 export type AgentListResponseDto = {
   items: AgentSummaryDto[]
   total: number
@@ -68,6 +71,9 @@ export type JobSummaryDto = {
   created_at: string
   updated_at: string
 }
+
+/** The detail endpoint currently returns the canonical job summary shape. */
+export type JobDetailDto = JobSummaryDto
 
 export type JobListResponseDto = {
   items: JobSummaryDto[]
@@ -198,6 +204,12 @@ function parseAgent(value: unknown): AgentSummaryDto | undefined {
   return agent
 }
 
+function parseAgentDetail(payload: unknown): AgentDetailDto {
+  const agent = parseAgent(payload)
+  if (!agent) throw contractError('agent')
+  return agent
+}
+
 function parseAgents(payload: unknown): AgentListResponseDto {
   if (!isRecord(payload) || !Array.isArray(payload.items) || !requiredInteger(payload.total)) throw contractError('agents')
   const items = payload.items.map(parseAgent)
@@ -247,6 +259,12 @@ function parseJob(value: unknown): JobSummaryDto | undefined {
   return job
 }
 
+function parseJobDetail(payload: unknown): JobDetailDto {
+  const job = parseJob(payload)
+  if (!job) throw contractError('job')
+  return job
+}
+
 function parseJobs(payload: unknown): JobListResponseDto {
   if (!isRecord(payload) || !Array.isArray(payload.items) || !requiredInteger(payload.total)) throw contractError('jobs')
   const items = payload.items.map(parseJob)
@@ -258,7 +276,9 @@ export const api = {
   health: () => request<HealthResponse>('/api/health'),
   dashboardMetrics: () => request<unknown>('/api/v1/dashboard/metrics').then(parseDashboardMetrics),
   agents: () => request<unknown>('/api/v1/agents').then(parseAgents),
+  agent: (agentId: number) => request<unknown>(`/api/v1/agents/${agentId}`).then(parseAgentDetail),
   jobs: () => request<unknown>('/api/v1/jobs').then(parseJobs),
+  job: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}`).then(parseJobDetail),
 }
 
 export { baseUrl }

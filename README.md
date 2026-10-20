@@ -2,7 +2,7 @@
 
 Auto Escrow is a greenfield MVP for coordinating work between people and AI agents. It is designed around a transparent sequence: define a task, compare agents, agree on terms, verify a result, and only then settle a simulated escrow balance.
 
-Phase 2 adds the persistent database domain and read/create API while preserving the Phase 1 responsive React shell. The application now stores agents, jobs, agreements, escrow records, ledger entries, submissions, verifications, disputes, and audit events in SQLite by default. Later phases will add matching, lifecycle transitions, submission evaluation, settlement, and dispute operations.
+Phase 3 adds a real agent marketplace on top of the Phase 2 persistence and API foundation. The application now supports browsing persisted synthetic agents, filtering and sorting them, opening detail pages, and carrying an agent selection into the existing-job context without pretending that matching or agreements have happened.
 
 ## Current scope
 
@@ -20,6 +20,8 @@ Implemented:
 - Repeatable synthetic demo seed data with six agents and optional jobs.
 - Isolated backend tests using temporary SQLite databases.
 - React frontend integration for real dashboard metrics, persisted agents, persisted jobs, loading states, empty states, filtering, and API errors.
+- Agent marketplace with real API-backed search, skill/category/availability filters, sorting, clear filters, detail pages, and accessible selection navigation.
+- Agent detail and job detail routes with missing-record handling and honest Phase 3 workflow boundaries.
 - Responsive navigation for Dashboard, Agents, Jobs, Escrow, Disputes, and Settings.
 
 Not yet implemented:
@@ -53,7 +55,7 @@ AutoEscrow/
 │   └── Makefile
 ├── frontend/
 │   ├── src/components/           # shell, sidebar, status UI
-│   ├── src/pages/                # dashboard, agents, jobs, empty workflow surfaces
+│   ├── src/pages/                # dashboard, marketplace, agent/job details, workflow surfaces
 │   ├── src/lib/api.ts            # typed client and response validation
 │   └── package.json
 ├── .env.example
@@ -163,7 +165,7 @@ npm run dev
 
 The top-right API badge is driven by a real health request. Dashboard metrics and agent/job cards are driven by persisted API responses.
 
-## Phase 2 API endpoints
+## Phase 2 and Phase 3 API endpoints
 
 All domain endpoints use the `/api/v1` prefix.
 
@@ -207,6 +209,10 @@ Budgets must be positive, currencies must be supported, and deadlines must be ti
 - `GET /api/v1/agreements/{agreement_id}`
 - `GET /api/v1/escrows/{escrow_id}`
 - `GET /api/v1/dashboard/metrics`
+
+The Phase 3 marketplace uses both agent endpoints. The frontend also uses the existing job detail endpoint when a user carries a selected agent into a persisted job context:
+
+- `GET /api/v1/jobs/{job_id}`
 
 When a job exists without an agreement or escrow, the related lookup returns `204 No Content`. Unknown jobs and record IDs return `404`.
 
@@ -272,6 +278,20 @@ npm run build
 ```
 
 Backend tests use temporary isolated SQLite databases and cover database initialization, health, agent retrieval, job validation and persistence, metrics, seed repeatability, and missing records. Frontend tests cover persisted metrics, canonical response validation, agent search/filtering, jobs, empty states, and API errors.
+
+## Manual Phase 3 browser walkthrough
+
+1. Start the backend, apply migrations, and run `python -m app.seed --with-jobs`.
+2. Start the frontend and open <http://localhost:5173/agents>.
+3. Confirm the marketplace count and agent cards come from the persisted API.
+4. Search for a skill such as `research`, then combine a task-category and availability filter.
+5. Change sorting to estimated completion or performance when those fields exist.
+6. Select **Clear filters** and confirm the complete result set returns.
+7. Open **View details** on an agent and verify the detail route fetches that agent ID.
+8. Select **Select for Job**. The app carries the agent ID to `/jobs?agentId=...` and clearly states that no match or agreement was created.
+9. Choose an existing persisted job if seeded and open its detail route. The job page preserves the selected agent context without assigning it.
+
+If the API is unavailable, the marketplace shows an error and retry action rather than showing cached or fabricated agent data.
 
 ## Security and limitations
 
