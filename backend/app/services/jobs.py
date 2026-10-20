@@ -5,10 +5,18 @@ from decimal import Decimal
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.job_states import INITIAL_JOB_STATUS
+from app.job_states import INITIAL_JOB_STATUS, validate_transition
 from app.models import Agent, Job
 from app.schemas import JobCreate
 from app.services.audit import record_event
+
+
+def transition_job(job: Job, target: str) -> Job:
+    """Apply a validated job lifecycle transition in the current transaction."""
+
+    validate_transition(job.status, target)
+    job.status = target
+    return job
 
 
 def create_job(db: Session, payload: JobCreate) -> Job:

@@ -165,7 +165,36 @@ export type JobListQuery = {
   requesterAgentId?: number
 }
 
-export type AgreementStatus = 'draft' | 'proposed' | 'accepted' | 'rejected' | 'expired' | 'cancelled'
+export type AgreementStatus = 'draft' | 'proposed' | 'revision_requested' | 'revision_pending' | 'accepted' | 'rejected' | 'expired' | 'cancelled'
+
+export type AgreementTermsDto = {
+  scope?: string
+  expected_deliverable?: string
+  acceptance_criteria?: string[]
+  verification_method?: string
+  cancellation_conditions?: string
+  dispute_conditions?: string
+  instructions?: string | null
+  [key: string]: unknown
+}
+
+export type AgreementHistoryEntryDto = {
+  id?: number
+  version?: number
+  proposal_version?: number
+  action?: string
+  event_type?: string
+  status?: AgreementStatus
+  proposed_budget?: string
+  proposed_deadline?: string | null
+  currency?: string
+  terms?: AgreementTermsDto
+  reason?: string | null
+  actor_agent_id?: number | null
+  created_at?: string
+  occurred_at?: string
+  [key: string]: unknown
+}
 
 export type AgreementDto = {
   id: number
@@ -176,13 +205,38 @@ export type AgreementDto = {
   proposed_deadline: string | null
   currency: string
   status: AgreementStatus
-  terms: Record<string, unknown>
-  proposal_history: Record<string, unknown>[]
+  terms: AgreementTermsDto
+  proposal_version?: number
+  accepted_version?: number | null
+  history?: AgreementHistoryEntryDto[]
+  proposal_history: AgreementHistoryEntryDto[]
   amount: string
   created_at: string
   updated_at: string
   accepted_at: string | null
 }
+
+export type AgreementTermsPayload = {
+  scope: string
+  expected_deliverable: string
+  acceptance_criteria: string[]
+  verification_method: string
+  cancellation_conditions: string
+  dispute_conditions: string
+  instructions?: string | null
+}
+
+export type CreateAgreementPayload = {
+  proposed_budget: string
+  proposed_deadline?: string
+  currency: SupportedCurrency
+  terms: AgreementTermsPayload
+}
+
+export type SubmitAgreementRevisionPayload = CreateAgreementPayload
+export type AgreementHistoryDto = AgreementHistoryEntryDto[]
+export type AgreementAction = 'request_revision' | 'submit_revision' | 'accept' | 'reject' | 'cancel'
+export type AgreementActionResponseDto = AgreementDto
 
 export type EscrowStatus = 'pending' | 'funded' | 'held' | 'released' | 'refunded' | 'disputed'
 
@@ -454,27 +508,71 @@ function parseJobs(payload: unknown): JobListResponseDto {
   return { items: items as JobSummaryDto[], total: payload.total }
 }
 
-const agreementStatuses: AgreementStatus[] = ['draft', 'proposed', 'accepted', 'rejected', 'expired', 'cancelled']
+const agreementStatuses: AgreementStatus[] = ['draft', 'proposed', 'revision_requested', 'revision_pending', 'accepted', 'rejected', 'expired', 'cancelled']
 const escrowStatuses: EscrowStatus[] = ['pending', 'funded', 'held', 'released', 'refunded', 'disputed']
 const ledgerEntryTypes: LedgerEntryDto['entry_type'][] = ['deposit', 'hold', 'release', 'refund', 'fee']
 
+function parseAgreementHistoryEntry(value: unknown): AgreementHistoryEntryDto | undefined {
+  if (!isRecord(value)) return undefined
+  if (value.id !== undefined && !requiredInteger(value.id)) return undefined
+  if (value.version !== undefined && !requiredInteger(value.version)) return undefined
+  if (value.status !== undefined && !agreementStatuses.includes(value.status as AgreementStatus)) return undefined
+  if (value.proposed_budget !== undefined && !requiredString(value.proposed_budget)) return undefined
+  if (value.proposed_deadline !== undefined && value.proposed_deadline !== null && !requiredString(value.proposed_deadline)) return undefined
+  if (value.currency !== undefined && !requiredString(value.currency)) return undefined
+  if (value.terms !== undefined && !isRecord(value.terms)) return undefined
+  if (value.reason !== undefined && value.reason !== null && !requiredString(value.reason)) return undefined
+  if (value.actor_agent_id !== undefined && !requiredNullableInteger(value.actor_agent_id)) return undefined
+  if (value.created_at !== undefined && !requiredString(value.created_at)) return undefined
+  return value as AgreementHistoryEntryDto
+}
+
+function parseAgreementHistory(payload: unknown): AgreementHistoryEntryDto[] {
+  const root = isRecord(payload) && payload.data !== undefined ? payload.data : payload
+  const values = Array.isArray(root)
+    ? root
+    : isRecord(root)
+      ? root.items ?? root.history ?? root.proposal_history
+      : undefined
+  if (!Array.isArray(values)) throw contractError('agreement history')
+  const history = values.map(parseAgreementHistoryEntry)
+  if (history.some((item): item is undefined => item === undefined)) throw contractError('agreement history')
+  return history as AgreementHistoryEntryDto[]
+}
+
+function agreementResponseValue(payload: unknown): unknown {
+  if (!isRecord(payload)) return payload
+  if (isRecord(payload.agreement)) return payload.agreement
+  if (isRecord(payload.data) && isRecord(payload.data.agreement)) return payload.data.agreement
+  if (isRecord(payload.data)) return payload.data
+  return payload
+}
+
 function parseAgreement(payload: unknown): AgreementDto {
-  if (!isRecord(payload) || !requiredInteger(payload.id) || !requiredInteger(payload.job_id) || !requiredInteger(payload.requester_agent_id) || !requiredInteger(payload.executor_agent_id) || !requiredString(payload.proposed_budget) || (payload.proposed_deadline !== null && !requiredString(payload.proposed_deadline)) || !requiredString(payload.currency) || !agreementStatuses.includes(payload.status as AgreementStatus) || !isRecord(payload.terms) || !Array.isArray(payload.proposal_history) || payload.proposal_history.some((item) => !isRecord(item)) || !requiredString(payload.amount) || !requiredString(payload.created_at) || !requiredString(payload.updated_at) || (payload.accepted_at !== null && !requiredString(payload.accepted_at))) throw contractError('agreement')
+  const root = agreementResponseValue(payload)
+  if (!isRecord(root) || !requiredInteger(root.id) || !requiredInteger(root.job_id) || !requiredInteger(root.requester_agent_id) || !requiredInteger(root.executor_agent_id) || !requiredString(root.proposed_budget) || (root.proposed_deadline !== null && !requiredString(root.proposed_deadline)) || !requiredString(root.currency) || !agreementStatuses.includes(root.status as AgreementStatus) || !isRecord(root.terms) || !requiredString(root.amount) || !requiredString(root.created_at) || !requiredString(root.updated_at) || (root.accepted_at !== null && !requiredString(root.accepted_at))) throw contractError('agreement')
+  const historyValue = root.history ?? root.proposal_history
+  const history = historyValue === undefined ? [] : parseAgreementHistory(historyValue)
+  if (root.proposal_version !== undefined && (!requiredInteger(root.proposal_version) || root.proposal_version < 1)) throw contractError('agreement')
+  if (root.accepted_version !== undefined && root.accepted_version !== null && (!requiredInteger(root.accepted_version) || root.accepted_version < 1)) throw contractError('agreement')
   return {
-    id: payload.id,
-    job_id: payload.job_id,
-    requester_agent_id: payload.requester_agent_id,
-    executor_agent_id: payload.executor_agent_id,
-    proposed_budget: payload.proposed_budget,
-    proposed_deadline: payload.proposed_deadline,
-    currency: payload.currency,
-    status: payload.status as AgreementStatus,
-    terms: payload.terms,
-    proposal_history: payload.proposal_history as Record<string, unknown>[],
-    amount: payload.amount,
-    created_at: payload.created_at,
-    updated_at: payload.updated_at,
-    accepted_at: payload.accepted_at,
+    id: root.id,
+    job_id: root.job_id,
+    requester_agent_id: root.requester_agent_id,
+    executor_agent_id: root.executor_agent_id,
+    proposed_budget: root.proposed_budget,
+    proposed_deadline: root.proposed_deadline,
+    currency: root.currency,
+    status: root.status as AgreementStatus,
+    terms: root.terms as AgreementTermsDto,
+    proposal_version: root.proposal_version as number | undefined,
+    accepted_version: root.accepted_version as number | null | undefined,
+    history,
+    proposal_history: history,
+    amount: root.amount,
+    created_at: root.created_at,
+    updated_at: root.updated_at,
+    accepted_at: root.accepted_at,
   }
 }
 
@@ -676,7 +774,17 @@ export const api = {
   runMatching: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/matches`, { method: 'POST' }).then(parseMatching),
   latestMatching: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/matches`).then(parseMatching),
   selectMatchingAgent: (jobId: number, agentId: number, runId?: string) => request<unknown>(`/api/v1/jobs/${jobId}/matches/${agentId}/select`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(runId ? { run_id: runId } : {}) }).then(parseAgentSelection),
-  jobAgreement: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/agreement`).then((payload) => payload === undefined ? null : parseAgreement(payload)),
+  createAgreement: (jobId: number, payload: CreateAgreementPayload) => request<unknown>(`/api/v1/jobs/${jobId}/agreement`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 201).then(parseAgreement),
+  agreement: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/agreement`).then((payload) => payload === undefined ? null : parseAgreement(payload)),
+  /** Compatibility alias retained for existing Phase 4/5 callers. */
+  jobAgreement: (jobId: number) => api.agreement(jobId),
+  agreementById: (agreementId: number) => request<unknown>(`/api/v1/agreements/${agreementId}`).then(parseAgreement),
+  agreementHistory: (agreementId: number) => request<unknown>(`/api/v1/agreements/${agreementId}/history`).then(parseAgreementHistory),
+  requestAgreementRevision: (agreementId: number, rationale?: string) => request<unknown>(`/api/v1/agreements/${agreementId}/revise`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'request_revision', ...(rationale ? { rationale } : {}) }) }).then(parseAgreement),
+  submitAgreementRevision: (agreementId: number, payload: SubmitAgreementRevisionPayload) => request<unknown>(`/api/v1/agreements/${agreementId}/revise`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, action: 'submit_revision' }) }).then(parseAgreement),
+  acceptAgreement: (agreementId: number) => request<unknown>(`/api/v1/agreements/${agreementId}/accept`, { method: 'POST' }).then(parseAgreement),
+  rejectAgreement: (agreementId: number) => request<unknown>(`/api/v1/agreements/${agreementId}/reject`, { method: 'POST' }).then(parseAgreement),
+  cancelAgreement: (agreementId: number) => request<unknown>(`/api/v1/agreements/${agreementId}/cancel`, { method: 'POST' }).then(parseAgreement),
   jobEscrow: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/escrow`).then((payload) => payload === undefined ? null : parseEscrow(payload)),
   jobEvents: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/events`).then(parseJobEvents),
 }

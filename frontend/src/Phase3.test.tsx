@@ -150,8 +150,8 @@ describe('Phase 3 detail and job-selection routes', () => {
 
     render(<MemoryRouter initialEntries={['/agents']}><Routes><Route path="/agents" element={<WorkspacePage />} /><Route path="/jobs" element={<WorkspacePage />} /><Route path="/jobs/:jobId" element={<JobDetailPage />} /></Routes></MemoryRouter>)
     await user.click(await screen.findByRole('link', { name: 'Select Atlas Writer for Job' }))
-    expect(await screen.findByText('Agent #1 is selected for this job context.')).toBeInTheDocument()
-    expect(screen.getByText(/Matching and agreement creation are not implemented yet/)).toBeInTheDocument()
+    expect(await screen.findByText(/Agent #\s*1 is carried into this job workspace/)).toBeInTheDocument()
+    expect(screen.getByText(/This URL context is not a persisted assignment/)).toBeInTheDocument()
 
     await user.click(screen.getByRole('link', { name: 'Select Review the API contract for the selected agent' }))
     expect(await screen.findByRole('heading', { name: 'Review the API contract' })).toBeInTheDocument()
@@ -163,7 +163,7 @@ describe('Phase 3 detail and job-selection routes', () => {
     render(<MemoryRouter initialEntries={['/jobs/9']}><Routes><Route path="/jobs/:jobId" element={<JobDetailPage />} /></Routes></MemoryRouter>)
     expect(await screen.findByRole('heading', { name: 'Review the API contract' })).toBeInTheDocument()
     expect(screen.getByText('A structured JSON review.')).toBeInTheDocument()
-    expect(screen.getByText(/Matching and agreement creation are not implemented yet/)).toBeInTheDocument()
+    expect(screen.getByText(/Run matching before proposing an agreement/)).toBeInTheDocument()
 
     stubApi((url) => url.endsWith('/api/v1/jobs/999') ? jsonResponse({ detail: 'job not found' }, 404) : jsonResponse({}, 404))
     render(<MemoryRouter initialEntries={['/jobs/999']}><Routes><Route path="/jobs/:jobId" element={<JobDetailPage />} /></Routes></MemoryRouter>)

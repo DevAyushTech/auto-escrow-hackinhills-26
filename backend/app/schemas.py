@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     AliasChoices,
@@ -15,6 +15,7 @@ from pydantic import (
     StrictStr,
     field_serializer,
     field_validator,
+    model_validator,
 )
 
 SUPPORTED_CURRENCIES = frozenset({"USD", "EUR", "GBP", "JPY", "CAD", "AUD"})
@@ -26,6 +27,8 @@ MAX_ACCEPTANCE_CRITERIA = 20
 MAX_ACCEPTANCE_CRITERION_LENGTH = 1000
 MAX_DESCRIPTION_LENGTH = 20000
 MAX_EXPECTED_OUTPUT_LENGTH = 20000
+MAX_AGREEMENT_TERM_LENGTH = 20000
+MAX_AGREEMENT_RATIONALE_LENGTH = 4000
 
 
 def _currency(value: str) -> str:
@@ -263,15 +266,167 @@ class MatchSelectionRequest(APIModel):
 AgentSelectionRequest = MatchSelectionRequest
 
 
+class AgreementTerms(APIModel):
+    """The immutable, versioned terms carried by an agreement proposal."""
+
+    scope: StrictStr = Field(
+        validation_alias=AliasChoices("scope", "task_description"),
+        serialization_alias="scope",
+        max_length=MAX_AGREEMENT_TERM_LENGTH,
+    )
+    expected_deliverable: StrictStr = Field(
+        validation_alias=AliasChoices("expected_deliverable", "expected_output"),
+        serialization_alias="expected_deliverable",
+        max_length=MAX_AGREEMENT_TERM_LENGTH,
+    )
+    acceptance_criteria: list[StrictStr] = Field(min_length=1, max_length=MAX_ACCEPTANCE_CRITERIA)
+    verification_method: StrictStr = Field(max_length=MAX_AGREEMENT_TERM_LENGTH)
+    cancellation_conditions: StrictStr = Field(max_length=MAX_AGREEMENT_TERM_LENGTH)
+    dispute_conditions: StrictStr = Field(max_length=MAX_AGREEMENT_TERM_LENGTH)
+    instructions: Annotated[
+        StrictStr | None,
+        Field(
+            validation_alias=AliasChoices("instructions", "additional_instructions"),
+            serialization_alias="instructions",
+            max_length=MAX_AGREEMENT_TERM_LENGTH,
+        ),
+    ] = None
+
+    @field_validator(
+        "scope",
+        "expected_deliverable",
+        "verification_method",
+        "cancellation_conditions",
+        "dispute_conditions",
+        "instructions",
+        mode="before",
+    )
+    @classmethod
+    def normalize_term_text(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return value
+        normalized = value.strip()
+        return normalized or None
+
+    @field_validator("acceptance_criteria")
+    @classmethod
+    def normalize_term_criteria(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for criterion in value:
+            item = criterion.strip()
+            if not item:
+                raise ValueError("acceptance_criteria must contain meaningful nonblank items")
+            if len(item) > MAX_ACCEPTANCE_CRITERION_LENGTH:
+                raise ValueError(
+                    f"each acceptance criterion must be at most {MAX_ACCEPTANCE_CRITERION_LENGTH} characters"
+                )
+            normalized.append(item)
+        return normalized
+
+
+def _validate_optional_budget(value: Decimal | None) -> Decimal | None:
+    if value is None:
+        return None
+    if value != value.quantize(Decimal("0.01")):
+        raise ValueError("budget must use no more than 2 decimal places")
+    return value
+
+
+class AgreementCreate(APIModel):
+    """Create a proposal, defaulting omitted values from its job."""
+
+    proposed_budget: Decimal | None = Field(
+        default=None,
+        gt=Decimal("0"),
+        le=MAX_JOB_BUDGET,
+        max_digits=18,
+        decimal_places=2,
+    )
+    proposed_deadline: datetime | None = None
+    currency: StrictStr | None = None
+    terms: AgreementTerms | None = None
+    rationale: StrictStr | None = Field(default=None, max_length=MAX_AGREEMENT_RATIONALE_LENGTH)
+
+    _validate_budget = field_validator("proposed_budget")(_validate_optional_budget)
+    _validate_currency = field_validator("currency")(_currency)
+    _validate_deadline = field_validator("proposed_deadline")(_future_deadline)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_field_names(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        aliases = {
+            "proposed_budget": ("budget", "amount"),
+            "proposed_deadline": ("deadline",),
+        }
+        for field_name, field_aliases in aliases.items():
+            if field_name not in normalized:
+                for alias in field_aliases:
+                    if alias in normalized:
+                        normalized[field_name] = normalized[alias]
+                        break
+            for alias in field_aliases:
+                normalized.pop(alias, None)
+        return normalized
+
+    @field_validator("rationale", mode="before")
+    @classmethod
+    def normalize_rationale(cls, value: Any) -> Any:
+        if value is None or not isinstance(value, str):
+            return value
+        normalized = value.strip()
+        return normalized or None
+
+
+class AgreementRevisionRequest(AgreementCreate):
+    action: Literal["request_revision", "submit_revision"]
+
+
+class AgreementActionRequest(APIModel):
+    rationale: StrictStr | None = Field(default=None, max_length=MAX_AGREEMENT_RATIONALE_LENGTH)
+
+    @field_validator("rationale", mode="before")
+    @classmethod
+    def normalize_rationale(cls, value: Any) -> Any:
+        if value is None or not isinstance(value, str):
+            return value
+        normalized = value.strip()
+        return normalized or None
+
+
+class AgreementHistoryEntry(APIModel):
+    """Normalized history response that also reads pre-Phase-6 entries."""
+
+    version: int = 1
+    action: StrictStr = "legacy"
+    terms: dict[str, Any] = Field(default_factory=dict)
+    budget: Decimal | None = None
+    deadline: datetime | None = None
+    timestamp: datetime | None = None
+    rationale: StrictStr | None = None
+
+
 class AgreementResponse(APIModel):
     id: int
     job_id: int
     requester_agent_id: int
     executor_agent_id: int
-    proposed_budget: Decimal
+    proposed_budget: Decimal | None = None
     proposed_deadline: datetime | None = None
     currency: StrictStr
-    status: Literal["draft", "proposed", "accepted", "rejected", "expired", "cancelled"]
+    status: Literal[
+        "draft",
+        "proposed",
+        "revision_requested",
+        "accepted",
+        "rejected",
+        "expired",
+        "cancelled",
+    ]
     terms: dict[str, Any]
     proposal_history: list[dict[str, Any]]
     # Deprecated compatibility alias.
@@ -279,6 +434,8 @@ class AgreementResponse(APIModel):
     created_at: datetime
     updated_at: datetime
     accepted_at: datetime | None = None
+    proposal_version: int = 1
+    accepted_version: int | None = None
 
 
 class EscrowResponse(APIModel):

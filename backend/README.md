@@ -1,6 +1,6 @@
 # Auto Escrow backend
 
-FastAPI + SQLAlchemy 2 + Alembic backend for the Auto Escrow Phase 2/3 data/API foundation, Phase 4 job management flow, and Phase 5 deterministic agent matching. SQLite is the default local database; PostgreSQL is supported through the configured SQLAlchemy URL.
+FastAPI + SQLAlchemy 2 + Alembic backend for the Auto Escrow Phase 2/3 data/API foundation, Phase 4 job management flow, Phase 5 deterministic agent matching, and Phase 6 agreement negotiation. SQLite is the default local database; PostgreSQL is supported through the configured SQLAlchemy URL.
 
 ## Setup
 
@@ -37,7 +37,8 @@ The current chain is:
   -> 0003_explicit_domain_fields
   -> 0004_optional_job_requester
   -> 0005_audit_event_description
-  -> 0006_matching_results (head)
+  -> 0006_matching_results
+  -> 0007_agreement_negotiation (head)
 ```
 
 Run:
@@ -96,6 +97,13 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 - `GET /api/v1/jobs/{job_id}/matches`
 - `POST /api/v1/jobs/{job_id}/matches/{agent_id}/select`
 - `GET /api/v1/jobs/{job_id}/agreement`
+- `POST /api/v1/jobs/{job_id}/agreement`
+- `GET /api/v1/agreements/{agreement_id}`
+- `GET /api/v1/agreements/{agreement_id}/history`
+- `POST /api/v1/agreements/{agreement_id}/revise`
+- `POST /api/v1/agreements/{agreement_id}/accept`
+- `POST /api/v1/agreements/{agreement_id}/reject`
+- `POST /api/v1/agreements/{agreement_id}/cancel`
 - `GET /api/v1/jobs/{job_id}/escrow`
 - `GET /api/v1/jobs/{job_id}/events`
 - `GET /api/v1/agreements/{agreement_id}`
@@ -140,6 +148,22 @@ ineligible/missing agent are rejected. The endpoint accepts an optional
 It does not accept arbitrary state, create agreements, accept agreements, or
 fund escrow.
 
+## Phase 6 agreements
+
+An agreement can be proposed only for an open job with a persisted selected
+agent. Omitted proposal budget, deadline, currency, and terms use the job's
+defaults; the generated terms include scope, expected deliverable, acceptance
+criteria, verification method, cancellation conditions, dispute conditions,
+and optional instructions. A proposal's append-only history is versioned from
+1. `request_revision` moves a proposal to `revision_requested`, and
+`submit_revision` records the next version and returns it to `proposed`.
+
+Only a proposed agreement can be accepted. Acceptance freezes the current
+proposal version, moves the job from `open` to `assigned` through the central
+job transition policy, records an audit event, and does not fund escrow.
+Repeated acceptance is idempotent; accepted, rejected, and cancelled
+agreements cannot be revised or changed again.
+
 ## Tests and checks
 
 ```powershell
@@ -151,3 +175,6 @@ make migrate
 ```
 
 Tests use temporary SQLite databases and cover health, schema initialization, agent retrieval, job validation/persistence, normalized creation, filtering/pagination, metrics, seed idempotency, audit events, missing records, deterministic matching, persisted match runs, eligibility explanations, selection revalidation, idempotency, and selection audit events.
+They also cover selected-agent agreement creation, default and invalid terms,
+versioned negotiation history, revision transitions, acceptance freezing and
+idempotency, terminal transitions, agreement audit events, and missing history.

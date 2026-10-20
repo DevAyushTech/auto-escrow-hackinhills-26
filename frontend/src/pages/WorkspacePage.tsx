@@ -281,7 +281,7 @@ export function JobsWorkspace() {
 }
 
 function SelectedAgentBanner({ agentId }: { agentId: number }) {
-  return <div className="rounded-2xl border border-accent/30 bg-accent/10 p-5" role="status" aria-live="polite"><p className="text-xs font-bold uppercase tracking-[0.18em] text-accent">Selected agent</p><p className="mt-2 text-sm font-semibold text-white">Agent #{agentId} is selected for this job context.</p><p className="mt-2 text-sm leading-6 text-slate-300">This selection is carried in the URL only. Matching and agreement creation are not implemented yet, so no assignment or agreement has been created.</p></div>
+  return <div className="rounded-2xl border border-accent/30 bg-accent/10 p-5" role="status" aria-live="polite"><p className="text-xs font-bold uppercase tracking-[0.18em] text-accent">Selection context</p><p className="mt-2 text-sm font-semibold text-white">Agent #{agentId} is carried into this job workspace.</p><p className="mt-2 text-sm leading-6 text-slate-300">This URL context is not a persisted assignment. Open the job, run matching, and use the agreement workspace after the server persists a selected agent.</p></div>
 }
 
 function JobCard({ job, selectedAgentId }: { job: JobListResponseDto['items'][number]; selectedAgentId: number | null }) {

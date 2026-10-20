@@ -144,7 +144,7 @@ class Agreement(Base):
     __tablename__ = "agreements"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('draft', 'proposed', 'accepted', 'rejected', 'expired', 'cancelled')",
+            "status IN ('draft', 'proposed', 'revision_requested', 'accepted', 'rejected', 'expired', 'cancelled')",
             name="ck_agreements_status",
         ),
         CheckConstraint("amount > 0", name="ck_agreements_amount_positive"),
@@ -165,6 +165,8 @@ class Agreement(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="proposed")
     terms: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     proposal_history: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    proposal_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    accepted_version: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

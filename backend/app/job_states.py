@@ -55,6 +55,22 @@ def can_transition(current: str, target: str) -> bool:
     return target in JOB_STATE_TRANSITIONS.get(current, frozenset())
 
 
+class InvalidJobTransition(ValueError):
+    """Raised when a workflow attempts an unsupported job state transition."""
+
+    def __init__(self, current: str, target: str) -> None:
+        self.current = current
+        self.target = target
+        super().__init__(f"job cannot transition from {current!r} to {target!r}")
+
+
+def validate_transition(current: str, target: str) -> None:
+    """Validate a job transition using the central job transition table."""
+
+    if not can_transition(current, target):
+        raise InvalidJobTransition(current, target)
+
+
 def is_open_for_matching(status: str) -> bool:
     """Return whether a job may receive a new agent selection."""
 
@@ -68,7 +84,9 @@ __all__ = [
     "JOB_STATES",
     "JOB_TRANSITIONS",
     "MATCHING_JOB_STATUS",
+    "InvalidJobTransition",
     "can_transition",
     "is_open_for_matching",
     "is_job_state",
+    "validate_transition",
 ]
