@@ -169,3 +169,49 @@ Not completed: npm could not replace an existing node_modules/@esbuild/linux-x64
 ```
 
 The final frontend suite after the dependency update passed with 56 tests, along with typecheck, lint, and production build. The final backend suite passed with 83 tests, compileall, and `pip check`. Docker image execution was not available in this environment because the `docker` command is not installed.
+
+## Phase 12 final verification
+
+The documentation and final project state were rechecked on October 20, 2026:
+
+```text
+make test
+backend: 83 passed, 1 warning; frontend: 56 passed
+
+make compile
+passed
+
+.venv/bin/python -m pip check
+No broken requirements found.
+
+npm run typecheck
+passed
+
+npm run lint
+passed
+
+npm run build
+passed
+
+APP_ENV=test TEST_DATABASE_URL=sqlite:////tmp/agent-tmp/phase12-migrations.sqlite3 .venv/bin/python -m alembic upgrade head
+APP_ENV=test TEST_DATABASE_URL=sqlite:////tmp/agent-tmp/phase12-migrations.sqlite3 .venv/bin/python -m alembic downgrade base
+APP_ENV=test TEST_DATABASE_URL=sqlite:////tmp/agent-tmp/phase12-migrations.sqlite3 .venv/bin/python -m alembic upgrade head
+APP_ENV=test TEST_DATABASE_URL=sqlite:////tmp/agent-tmp/phase12-migrations.sqlite3 .venv/bin/python -m alembic current
+0010_harden_ledger_idempotency (head)
+
+PYTHONPATH=. .venv/bin/python -c "from app.main import app; ..."
+app_import=ok; route_count=40; health_route=True; openapi_route=True
+
+npm audit --omit=dev --audit-level=high
+found 0 vulnerabilities
+
+secret-hygiene scan
+real_env_files=0; potential_secret_matches=0
+
+documentation link check
+documentation_link_errors=0
+```
+
+The full frontend development audit still reports 22 vulnerabilities in the
+development toolchain. The available forced remediation would require breaking
+tool upgrades, including Tailwind 4, so it was not applied during this phase.

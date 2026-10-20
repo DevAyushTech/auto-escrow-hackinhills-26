@@ -22,7 +22,8 @@ the public `not_funded` state.
 pending/not_funded -> funded
 funded -> held | released | refunded | disputed
 held -> released | refunded | disputed
-disputed -> released | refunded (only with a valid resolved dispute)
+disputed -> funded | held (only when a dispute is rejected and prior state is restored)
+disputed -> released | refunded (only with a valid resolved dispute outcome)
 released -> terminal
 refunded -> terminal
 ```
@@ -38,7 +39,8 @@ never accepted from the funding UI as financial authority.
 - one agreement belonging to that job;
 - `agreement.status == accepted` and an `accepted_version`;
 - an assigned-or-later fundable job state; and
-- no already funded escrow for the job.
+- no terminal or already-settled escrow for the job. A consistent pending or
+  legacy deposit record may be reconciled without creating a duplicate effect.
 
 The body may contain only optional idempotency metadata:
 
@@ -81,8 +83,9 @@ POST /api/v1/escrows/{escrow_id}/refund
 Release is rejected with `409 verification is required` until the job is
 completed and a related submission has a passing verification result. Refund
 is rejected unless a server-side dispute is resolved with a refund decision.
-An unresolved dispute cannot be bypassed by a frontend request. No frontend
-button claims settlement or refund in this phase.
+An unresolved dispute cannot be bypassed by a frontend request. The current
+frontend exposes settlement controls only after the backend confirms the
+relevant state and resolution response.
 
 ## Read APIs
 

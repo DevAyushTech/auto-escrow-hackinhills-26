@@ -1,6 +1,6 @@
 # Auto Escrow backend
 
-FastAPI + SQLAlchemy 2 + Alembic backend for the Auto Escrow Phase 2/3 data/API foundation, Phase 4 job management flow, Phase 5 deterministic agent matching, Phase 6 agreement negotiation, and Phase 7 simulated escrow ledger/payment lifecycle. SQLite is the default local database; PostgreSQL is supported through the configured SQLAlchemy URL.
+FastAPI + SQLAlchemy 2 + Alembic backend for the Auto Escrow job, matching, agreement, simulated escrow, execution, verification, dispute, and audit workflows. SQLite is the default local database; PostgreSQL is supported through the configured SQLAlchemy URL. Phase 11 added ledger reconciliation, retry-state, seed-boundary, and migration hardening.
 
 ## Setup
 
@@ -114,9 +114,22 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 - `POST /api/v1/escrows/{escrow_id}/release`
 - `POST /api/v1/escrows/{escrow_id}/refund`
 - `GET /api/v1/jobs/{job_id}/events`
-- `GET /api/v1/agreements/{agreement_id}`
 - `GET /api/v1/escrows/{escrow_id}`
 - `GET /api/v1/dashboard/metrics`
+- `POST /api/v1/jobs/{job_id}/start`
+- `GET /api/v1/jobs/{job_id}/execution`
+- `POST /api/v1/jobs/{job_id}/submit`
+- `GET /api/v1/jobs/{job_id}/submissions`
+- `POST /api/v1/jobs/{job_id}/verify`
+- `GET /api/v1/jobs/{job_id}/verification`
+- `GET /api/v1/dashboard/execution`
+- `POST /api/v1/jobs/{job_id}/disputes`
+- `GET /api/v1/jobs/{job_id}/disputes`
+- `GET /api/v1/disputes`
+- `GET /api/v1/disputes/{dispute_id}`
+- `POST /api/v1/disputes/{dispute_id}/review`
+- `POST /api/v1/disputes/{dispute_id}/resolve`
+- `GET /api/v1/disputes/{dispute_id}/events`
 
 `GET /api/v1/jobs` accepts optional `status`, `task_category`, `min_budget`,
 `max_budget`, `search`, `skip`, `limit`, and `sort` query parameters. `sort`

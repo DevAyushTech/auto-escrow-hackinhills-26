@@ -1,6 +1,13 @@
 # Auto Escrow
 
-Auto Escrow is a greenfield MVP for coordinating work between people and AI agents. It is designed around a transparent sequence: define a task, compare agents, agree on terms, verify a result, and only then settle a simulated escrow balance.
+**Team:** Code Rangers  
+**Event:** Hack in Hills ’26 Round 2
+
+Auto Escrow is a local/demo MVP for coordinating work between people and AI agents. It addresses a practical trust problem: a requester needs a capable operator, a clear agreement, evidence that the result meets the agreed criteria, and a reviewable record before simulated settlement is allowed.
+
+The target users are requesters who need auditable AI-assisted work and operators who need clear requirements, explainable matching, versioned agreements, deterministic checks, and a dispute path. The differentiator is the backend-authoritative workflow: the frontend cannot claim a status, change the agreed amount, forge a verification result, or bypass the escrow service.
+
+The project is intentionally not a real financial, custody, blockchain, or production-authenticated platform. Its escrow balance and settlement ledger are simulated persisted application records for demonstration and testing.
 
 Phase 5 adds a deterministic, explainable agent matching engine on top of the Phase 4 job workflow. Phase 6 adds a persisted agreement negotiation flow: a selected agent can receive a typed proposal, request and submit revisions, accept/reject/cancel the proposal, and inspect append-only proposal history. Phase 7 adds a simulated escrow ledger: funding is derived from the accepted agreement, stored as an append-only ledger entry, and guarded from settlement until later verification exists. Phase 8 adds a backend-authoritative local demo execution boundary, immutable submission history, deterministic agreement-based verification, manual-review outcomes, retry limits, and settlement eligibility. Acceptance freezes the current terms, moves the job to `assigned`, and does not fund escrow.
 
@@ -16,7 +23,7 @@ Implemented:
 - Alembic revisions `0001_phase1_foundation`, `0002_escrow_domain`, `0003_explicit_domain_fields`, `0004_optional_job_requester`, `0005_audit_event_description`, `0006_matching_results`, `0007_agreement_negotiation`, `0008_simulated_escrow_lifecycle`, `0009_dispute_workflow`, and `0010_harden_ledger_idempotency`.
 - Decimal-safe `NUMERIC(18,2)` money fields and fixed-point API serialization.
 - Validated Pydantic request/response contracts.
-- Versioned FastAPI endpoints for agents, jobs, agreements, escrow lookup, audit activity, and persisted dashboard metrics.
+- Versioned FastAPI endpoints for agents, jobs, matching, agreements, execution, verification, disputes, escrow, audit activity, and persisted dashboard metrics.
 - Repeatable synthetic demo seed data with six agents and optional jobs.
 - Isolated backend tests using temporary SQLite databases.
 - React frontend integration for real dashboard metrics, persisted agents, persisted jobs, loading states, empty states, filtering, and API errors.
@@ -39,13 +46,30 @@ Implemented:
 - Execution workspace UI with real API loading/error states, confirmation prompts, draft preservation, submission history, failed-check explanations, and manual-review messaging.
 - Persisted dispute creation, review, demo-operator resolution, evidence display, dispute-specific audit events, and escrow/job protection.
 - Dispute list/detail/create UI integrated with job details and escrow pages.
-- Responsive navigation for Dashboard, Agents, Jobs, Escrow, Disputes, and Settings.
+- Responsive navigation for Dashboard, Agents, Jobs, Escrow, Disputes, and Configuration.
+- Phase 11 security and reliability hardening for ledger reconciliation, retry verification state, nested schema handling, dispute restoration guards, seed boundaries, pending escrow display, SPA deep links, and fresh migration validation.
 
 Not yet implemented:
 
-- Authentication and production authorization.
+- Authentication, production authorization, and tenant/resource isolation.
+- Real payment custody, payment-provider webhooks, blockchain transactions, independent arbitration, and external agent execution.
 
 The UI deliberately does not invent the remaining workflows or claim that a simulated ledger moves real money.
+
+## Problem and proposed solution
+
+AI-agent work often crosses a trust gap: the requester may not know which agent is appropriate, the operator may receive underspecified requirements, and a payment decision may be difficult to explain after the result is delivered. Auto Escrow turns that gap into a visible sequence:
+
+1. Define a job with requirements, budget, deadline, expected output, and acceptance criteria.
+2. Compare backend-generated matching scores and explanations.
+3. Persist a selected agent and negotiate versioned agreement terms.
+4. Freeze the accepted terms before simulated funding.
+5. Execute through a safe local-demo boundary and store immutable submissions.
+6. Evaluate the submission against the accepted criteria.
+7. Release or refund only through backend settlement and dispute rules.
+8. Review the ledger and audit events instead of relying on a client-side success message.
+
+Key differentiators are explainable matching, accepted-term snapshots, immutable submission/verification history, server-derived escrow amounts, transactional ledger updates, and explicit dispute protection.
 
 ## Architecture
 
@@ -70,9 +94,18 @@ AutoEscrow/
 │   ├── src/pages/                # dashboard, marketplace, agent/job details, workflow surfaces
 │   ├── src/lib/api.ts            # typed client and response validation
 │   └── package.json
+├── docs/                         # workflow, UI, API, architecture, security notes
+├── DEMO_GUIDE.md                 # judge-friendly local presentation script
 ├── .env.example
 └── .gitignore
 ```
+
+### Responsibility split
+
+- **Frontend:** React/Vite pages, navigation, forms, loading/error/empty states, confirmation prompts, and rendering of backend responses. It does not own lifecycle transitions or financial authority.
+- **Backend:** FastAPI routes, Pydantic validation, SQLAlchemy persistence, service transaction boundaries, centralized state machines, matching, verification, escrow settlement, disputes, and audit events.
+- **Database:** SQLite by default for local work; PostgreSQL URLs are supported at the SQLAlchemy connection layer. Alembic owns schema changes.
+- **Auditability:** Successful state changes record structured `AuditEvent` rows in the same service transaction where applicable. Escrow ledger rows are append-only during ordinary operations.
 
 ## Prerequisites
 
@@ -85,29 +118,35 @@ No paid service, cloud database, API key, or blockchain account is required.
 
 ## Environment variables
 
-Root `.env.example`:
+The root `.env.example` is a safe reference. When running the services locally, copy the service-specific examples instead: `backend/.env.example` for FastAPI and `frontend/.env.example` for Vite.
+
+Root reference `.env.example`:
 
 ```text
 APP_ENV=development
 DATABASE_URL=sqlite:///./auto_escrow.db
+TEST_DATABASE_URL=sqlite:///./test_auto_escrow.db
 FRONTEND_ORIGIN=http://localhost:5173
+MAX_SUBMISSION_RETRIES=2
+DEMO_RESOLUTION_OPERATOR=demo-operator
 VITE_API_BASE_URL=http://localhost:8000
 ```
 
-Backend also supports:
+Backend also supports the same backend variables in `backend/.env.example`. `TEST_DATABASE_URL` is used only when `APP_ENV=test`; it keeps migration checks and test databases isolated. `DEMO_RESOLUTION_OPERATOR` is a development/test-only shared identifier, not authentication.
+
+Frontend uses:
 
 ```text
-TEST_DATABASE_URL=sqlite:///./test_auto_escrow.db
-MAX_SUBMISSION_RETRIES=2
+VITE_API_BASE_URL=http://localhost:8000
 ```
 
-`TEST_DATABASE_URL` is used only when `APP_ENV=test`. A PostgreSQL-compatible deployment URL can be supplied as `DATABASE_URL`, for example:
+A PostgreSQL-compatible deployment URL can be supplied as `DATABASE_URL`, for example:
 
 ```text
 postgresql+psycopg://user:password@localhost/auto_escrow
 ```
 
-Never place backend secrets in a `VITE_` variable. Never overwrite a real `.env` file when preparing local configuration.
+Never place backend secrets in a `VITE_` variable. Never publish `.env` files, credentials, database passwords, or private keys. The frontend API URL is compiled into the Vite build; changing it for a static deployment requires rebuilding the frontend.
 
 ## Windows PowerShell setup
 
@@ -178,7 +217,7 @@ npm run dev
 
 The top-right API badge is driven by a real health request. Dashboard metrics and agent/job cards are driven by persisted API responses.
 
-## Phase 2–5 API endpoints
+## Implemented API endpoints
 
 All domain endpoints use the `/api/v1` prefix.
 
@@ -332,6 +371,8 @@ python -m alembic current
 
 The application never creates, resets, drops, or downgrades tables on startup. To verify a fresh migration chain on a disposable database, set `APP_ENV=test` and `TEST_DATABASE_URL` to a temporary SQLite path before running Alembic. Do not use a production database for downgrade tests.
 
+The current migration head is `0010_harden_ledger_idempotency`. `make migrate-down` downgrades one revision only; a full disposable-chain check uses `python -m alembic downgrade base` followed by `python -m alembic upgrade head`.
+
 ## Tests and checks
 
 From the repository root:
@@ -359,9 +400,9 @@ npm run lint
 npm run build
 ```
 
-Backend tests use temporary isolated SQLite databases and cover database initialization, health, agent retrieval, job validation and persistence, metrics, seed repeatability, and missing records. Frontend tests cover persisted metrics, canonical response validation, agent search/filtering, jobs, empty states, and API errors.
+Backend tests use temporary isolated SQLite databases and cover database initialization, health, agent retrieval, job validation and persistence, metrics, matching, agreements, escrow invariants, execution, verification, disputes, seed repeatability, migration-facing behavior, and missing records. Frontend tests cover persisted metrics, canonical response validation, agent search/filtering, jobs, agreements, escrow, execution, disputes, empty states, duplicate actions, and API errors.
 
-## Manual Phase 5–7 browser walkthrough
+## Manual end-to-end browser walkthrough
 
 1. Start the backend, apply migrations, and run `python -m app.seed --with-jobs`.
 2. Start the frontend and open <http://localhost:5173/jobs>.
@@ -382,7 +423,7 @@ Backend tests use temporary isolated SQLite databases and cover database initial
 17. Confirm the browser prompt, fund once, and verify the persisted `funded` status, funding ledger entry, and `escrow.funded` audit event.
 18. Confirm a second funding request does not create a second ledger entry.
 19. Open **Execution workspace**, confirm the local demo limitation, and start execution.
-20. Submit a passing JSON result and structured evidence, then run deterministic verification. Confirm the job becomes settlement-ready without releasing escrow.
+20. For a reliable passing check, use criteria such as `Required JSON fields: summary, status`, `Required terms: approved, synthetic`, and `Required evidence fields: source`. Submit `{"summary":"approved synthetic result","status":"approved"}` with evidence `{"source":"synthetic-fixture"}`, then run deterministic verification. Confirm the job becomes settlement-ready without releasing escrow.
 21. Repeat with a missing required term and confirm the failed check, protected escrow, and retry behavior. Try a manual-review criterion and confirm it is not treated as a pass.
 22. From a funded job or escrow page, open a dispute, review its persisted evidence and verification context, and confirm settlement is blocked.
 23. In development/test mode, begin review with the demo operator boundary and resolve as release, refund, or reject. Confirm the resulting job, escrow, ledger, and audit records.
@@ -396,6 +437,13 @@ If the API is unavailable, the marketplace shows an error and retry action rathe
 - Escrow is a persisted model, not a bank transfer, crypto transaction, or legally independent escrow service.
 - API access currently trusts the caller; a public deployment needs authentication, authorization, CSRF/session strategy, rate limiting, HTTPS, secret management, structured audit logging, stricter CORS, and PostgreSQL persistence.
 - The local demo executor, deterministic verification, demo dispute resolution, and real payment-provider integration are not production integrations.
+- The backend has no tenant/resource isolation or independent operator identity. Do not expose the demo service to untrusted users.
+- Docker images do not run migrations automatically. Apply migrations through a controlled deployment step and provide persistent database storage before hosting.
+- PostgreSQL support is connection-level compatibility only; this repository does not provision PostgreSQL or provide deployment orchestration.
+
+## Deployment direction (not completed)
+
+A future deployment can serve the built frontend from a static host or the included Nginx image, run the FastAPI backend on a managed container/service, and use a persistent managed PostgreSQL database. The deployment must inject backend environment variables securely, set an exact frontend origin, run `alembic upgrade head` as a controlled release step, provide persistent storage/backups, and expose a real readiness check in addition to `/api/health`. None of this deployment has been executed or provisioned by this repository.
 
 ## Manual GitHub publication
 

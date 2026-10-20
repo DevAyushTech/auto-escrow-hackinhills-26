@@ -162,9 +162,10 @@ development/test environment.
    operator header; the backend must confirm the transition.
 8. Enter a rationale and choose **Resolve: release**, **Resolve: refund**, or
    **Reject and restore workflow**.
-9. Confirm the refreshed job, escrow status, ledger history, and resolution
-   event. Release creates a release ledger row; refund creates a refund row;
-   rejection creates no financial row.
+9. Open the linked job/escrow pages and confirm the current job, escrow status,
+   ledger history, and resolution event. Release creates a release ledger row;
+   refund creates a refund row; rejection creates no financial row. The dispute
+   detail page itself reloads the dispute record after the action.
 
 For a refund demonstration, use a funded job with a failed or incomplete
 submission, open a dispute, then resolve `refund`. For a release demonstration,

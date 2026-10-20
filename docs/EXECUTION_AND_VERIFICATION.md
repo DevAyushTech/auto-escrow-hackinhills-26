@@ -110,8 +110,9 @@ release payment. The escrow release service still checks that:
 - no unresolved dispute blocks settlement;
 - the escrow has not already been released or refunded.
 
-Failed and manual-review outcomes keep the escrow protected. No dispute
-creation or operator resolution UI is included in this phase.
+Failed and manual-review outcomes keep the escrow protected. Dispute creation
+and demo-operator resolution are implemented in the later dispute workflow;
+see [`docs/DISPUTES.md`](DISPUTES.md).
 
 ## API endpoints
 
