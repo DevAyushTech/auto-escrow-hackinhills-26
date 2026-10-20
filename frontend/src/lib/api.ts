@@ -273,6 +273,80 @@ export type EscrowDto = {
   ledger_entries: LedgerEntryDto[]
 }
 
+export type ExecutionStatus = 'blocked' | 'ready' | 'awaiting_submission' | 'awaiting_verification' | 'retry_available' | 'manual_review' | 'settlement_ready' | 'completed' | 'disputed' | 'cancelled'
+
+export type ExecutionDto = {
+  job_id: number
+  job_status: JobStatus
+  execution_status: ExecutionStatus
+  selected_agent_id: number | null
+  executor_agent_id: number | null
+  agreement_id: number | null
+  accepted_agreement_version: number | null
+  escrow_status: EscrowStatus | null
+  executor_type: 'local_demo'
+  can_start: boolean
+  can_submit: boolean
+  can_verify: boolean
+  start_reason: string
+  submit_reason: string
+  verify_reason: string
+  started_at: string | null
+  latest_submission_version: number | null
+  latest_verification_result: VerificationResult | null
+}
+
+export type SubmissionStatus = 'pending' | 'accepted' | 'rejected'
+
+export type SubmissionDto = {
+  id: number
+  job_id: number
+  agent_id: number
+  version: number
+  artifact_url: string
+  content: string | null
+  submitted_output: string
+  evidence: Record<string, unknown>
+  notes: string | null
+  status: SubmissionStatus
+  submitted_at: string
+}
+
+export type VerificationResult = 'pending' | 'passed' | 'failed' | 'manual_review' | 'needs_revision'
+export type VerificationStatus = 'pending' | 'passed' | 'failed'
+export type VerificationCheckDto = {
+  name: string
+  status: 'passed' | 'failed' | 'manual_review'
+  passed: boolean
+  explanation: string
+  evidence: unknown
+}
+
+export type VerificationDto = {
+  id: number
+  job_id: number
+  submission_id: number
+  submission_version: number
+  status: VerificationStatus
+  overall_result: VerificationResult
+  individual_checks: VerificationCheckDto[]
+  reasons: string[]
+  evaluator_type: 'automated' | 'human' | 'hybrid'
+  score: string | null
+  feedback: Record<string, unknown>
+  evaluated_at: string | null
+  verified_at: string | null
+}
+
+export type DashboardExecutionDto = {
+  jobs_running: number
+  jobs_awaiting_submission: number
+  jobs_awaiting_verification: number
+  jobs_eligible_for_settlement: number
+  recent_submissions: SubmissionDto[]
+  recent_verifications: VerificationDto[]
+}
+
 export type JobEventDto = {
   id: number
   job_id: number | null
@@ -608,6 +682,53 @@ function parseEscrow(payload: unknown): EscrowDto {
   return { id: root.id, job_id: root.job_id, agreement_id: root.agreement_id, funded_amount: fundedAmount, currency: root.currency, status: root.status as EscrowStatus, provider_reference: root.provider_reference === undefined ? null : root.provider_reference, funded_at: root.funded_at === undefined ? null : root.funded_at, released_at: root.released_at === undefined ? null : root.released_at, settled_at: root.settled_at === undefined ? null : root.settled_at, created_at: root.created_at, updated_at: root.updated_at, amount, ledger_entries: ledgerEntries as LedgerEntryDto[] }
 }
 
+const executionStatuses: ExecutionStatus[] = ['blocked', 'ready', 'awaiting_submission', 'awaiting_verification', 'retry_available', 'manual_review', 'settlement_ready', 'completed', 'disputed', 'cancelled']
+const verificationResults: VerificationResult[] = ['pending', 'passed', 'failed', 'manual_review', 'needs_revision']
+const verificationStatuses: VerificationStatus[] = ['pending', 'passed', 'failed']
+
+function parseSubmission(payload: unknown): SubmissionDto | undefined {
+  if (!isRecord(payload) || !requiredInteger(payload.id) || !requiredInteger(payload.job_id) || !requiredInteger(payload.agent_id) || !requiredInteger(payload.version) || !requiredString(payload.artifact_url) || (payload.content !== null && payload.content !== undefined && !requiredString(payload.content)) || !requiredString(payload.submitted_output) || !isRecord(payload.evidence) || (payload.notes !== null && payload.notes !== undefined && !requiredString(payload.notes)) || !['pending', 'accepted', 'rejected'].includes(payload.status as string) || !requiredString(payload.submitted_at)) return undefined
+  return { id: payload.id, job_id: payload.job_id, agent_id: payload.agent_id, version: payload.version, artifact_url: payload.artifact_url, content: payload.content === undefined ? null : payload.content, submitted_output: payload.submitted_output, evidence: payload.evidence, notes: payload.notes === undefined ? null : payload.notes, status: payload.status as SubmissionStatus, submitted_at: payload.submitted_at }
+}
+
+function parseVerificationCheck(payload: unknown): VerificationCheckDto | undefined {
+  if (!isRecord(payload) || !requiredString(payload.name) || !['passed', 'failed', 'manual_review'].includes(payload.status as string) || typeof payload.passed !== 'boolean' || !requiredString(payload.explanation) || !('evidence' in payload)) return undefined
+  return { name: payload.name, status: payload.status as VerificationCheckDto['status'], passed: payload.passed, explanation: payload.explanation, evidence: payload.evidence }
+}
+
+function parseVerification(payload: unknown): VerificationDto | undefined {
+  if (!isRecord(payload) || !requiredInteger(payload.id) || !requiredInteger(payload.job_id) || !requiredInteger(payload.submission_id) || !requiredInteger(payload.submission_version) || !verificationStatuses.includes(payload.status as VerificationStatus) || !verificationResults.includes(payload.overall_result as VerificationResult) || !Array.isArray(payload.individual_checks) || !requiredStringArray(payload.reasons) || !['automated', 'human', 'hybrid'].includes(payload.evaluator_type as string) || (payload.score !== null && payload.score !== undefined && !safeFixedPointString(payload.score)) || !isRecord(payload.feedback) || (payload.evaluated_at !== null && payload.evaluated_at !== undefined && !requiredString(payload.evaluated_at)) || (payload.verified_at !== null && payload.verified_at !== undefined && !requiredString(payload.verified_at))) return undefined
+  const checks = payload.individual_checks.map(parseVerificationCheck)
+  if (checks.some((item): item is undefined => item === undefined)) return undefined
+  return { id: payload.id, job_id: payload.job_id, submission_id: payload.submission_id, submission_version: payload.submission_version, status: payload.status as VerificationStatus, overall_result: payload.overall_result as VerificationResult, individual_checks: checks as VerificationCheckDto[], reasons: payload.reasons, evaluator_type: payload.evaluator_type as VerificationDto['evaluator_type'], score: payload.score === undefined ? null : payload.score, feedback: payload.feedback, evaluated_at: payload.evaluated_at === undefined ? null : payload.evaluated_at, verified_at: payload.verified_at === undefined ? null : payload.verified_at }
+}
+
+function parseExecution(payload: unknown): ExecutionDto {
+  if (!isRecord(payload) || !requiredInteger(payload.job_id) || !jobStatuses.includes(payload.job_status as JobStatus) || !executionStatuses.includes(payload.execution_status as ExecutionStatus) || !requiredNullableInteger(payload.selected_agent_id) || !requiredNullableInteger(payload.executor_agent_id) || !requiredNullableInteger(payload.agreement_id) || !requiredNullableInteger(payload.accepted_agreement_version) || (payload.escrow_status !== null && payload.escrow_status !== undefined && !escrowStatuses.includes(payload.escrow_status as EscrowStatus)) || payload.executor_type !== 'local_demo' || typeof payload.can_start !== 'boolean' || typeof payload.can_submit !== 'boolean' || typeof payload.can_verify !== 'boolean' || !requiredString(payload.start_reason) || !requiredString(payload.submit_reason) || !requiredString(payload.verify_reason) || (payload.started_at !== null && payload.started_at !== undefined && !requiredString(payload.started_at)) || !requiredNullableInteger(payload.latest_submission_version) || (payload.latest_verification_result !== null && payload.latest_verification_result !== undefined && !verificationResults.includes(payload.latest_verification_result as VerificationResult))) throw contractError('execution')
+  return { job_id: payload.job_id, job_status: payload.job_status as JobStatus, execution_status: payload.execution_status as ExecutionStatus, selected_agent_id: payload.selected_agent_id, executor_agent_id: payload.executor_agent_id, agreement_id: payload.agreement_id, accepted_agreement_version: payload.accepted_agreement_version, escrow_status: payload.escrow_status === undefined ? null : payload.escrow_status as EscrowStatus | null, executor_type: 'local_demo', can_start: payload.can_start, can_submit: payload.can_submit, can_verify: payload.can_verify, start_reason: payload.start_reason, submit_reason: payload.submit_reason, verify_reason: payload.verify_reason, started_at: payload.started_at === undefined ? null : payload.started_at, latest_submission_version: payload.latest_submission_version, latest_verification_result: payload.latest_verification_result === undefined ? null : payload.latest_verification_result as VerificationResult | null }
+}
+
+function parseSubmissions(payload: unknown): SubmissionDto[] {
+  if (!Array.isArray(payload)) throw contractError('submissions')
+  const submissions = payload.map(parseSubmission)
+  if (submissions.some((item): item is undefined => item === undefined)) throw contractError('submissions')
+  return submissions as SubmissionDto[]
+}
+
+function parseVerificationResponse(payload: unknown): VerificationDto {
+  const verification = parseVerification(payload)
+  if (!verification) throw contractError('verification')
+  return verification
+}
+
+function parseDashboardExecution(payload: unknown): DashboardExecutionDto {
+  if (!isRecord(payload) || !requiredInteger(payload.jobs_running) || !requiredInteger(payload.jobs_awaiting_submission) || !requiredInteger(payload.jobs_awaiting_verification) || !requiredInteger(payload.jobs_eligible_for_settlement) || !Array.isArray(payload.recent_submissions) || !Array.isArray(payload.recent_verifications)) throw contractError('dashboard execution')
+  const submissions = payload.recent_submissions.map(parseSubmission)
+  const verifications = payload.recent_verifications.map(parseVerification)
+  if (submissions.some((item): item is undefined => item === undefined) || verifications.some((item): item is undefined => item === undefined)) throw contractError('dashboard execution')
+  return { jobs_running: payload.jobs_running, jobs_awaiting_submission: payload.jobs_awaiting_submission, jobs_awaiting_verification: payload.jobs_awaiting_verification, jobs_eligible_for_settlement: payload.jobs_eligible_for_settlement, recent_submissions: submissions as SubmissionDto[], recent_verifications: verifications as VerificationDto[] }
+}
+
 function parseLedger(payload: unknown): LedgerEntryDto[] {
   if (payload === undefined) return []
   const root = isRecord(payload) && payload.data !== undefined ? payload.data : payload
@@ -823,6 +944,17 @@ export const api = {
   fundDemoEscrow: (jobId: number, idempotencyKey?: string) => request<unknown>(`/api/v1/jobs/${jobId}/escrow/fund`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(idempotencyKey ? { idempotency_key: idempotencyKey } : {}) }).then(parseEscrow),
   escrowLedger: (escrowId: number) => request<unknown>(`/api/v1/escrows/${escrowId}/ledger`).then(parseLedger),
   jobEvents: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/events`).then(parseJobEvents),
+  dashboardExecution: () => request<unknown>('/api/v1/dashboard/execution').then(parseDashboardExecution),
+  execution: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/execution`).then(parseExecution),
+  startExecution: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/start`, { method: 'POST' }).then(parseExecution),
+  submitJob: (jobId: number, payload: { submitted_output: string; evidence: Record<string, unknown>; notes?: string; agent_id?: number }) => request<unknown>(`/api/v1/jobs/${jobId}/submit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 201).then((response) => {
+    const submission = parseSubmission(response)
+    if (!submission) throw contractError('submission')
+    return submission
+  }),
+  submissions: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/submissions`).then(parseSubmissions),
+  verifyJob: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/verify`, { method: 'POST' }).then(parseVerificationResponse),
+  jobVerification: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/verification`).then((payload) => payload === undefined ? null : parseVerificationResponse(payload)),
 }
 
 export { baseUrl }

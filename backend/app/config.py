@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     # the normal development URL.  It is selected when APP_ENV=test.
     test_database_url: str | None = None
     frontend_origin: str = "http://localhost:5173"
+    # One initial submission plus this many retries is the demo default.  A
+    # deployment can lower or raise it without changing the state machine.
+    max_submission_retries: int = 2
 
     model_config = SettingsConfigDict(
         env_file=".env",

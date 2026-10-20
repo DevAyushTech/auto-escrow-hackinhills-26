@@ -289,6 +289,13 @@ class Submission(Base):
     agent: Mapped[Agent] = relationship(back_populates="submissions")
     verification: Mapped["Verification | None"] = relationship(back_populates="submission", uselist=False, cascade="all, delete-orphan")
 
+    @property
+    def notes(self) -> str | None:
+        """Expose optional explanatory notes stored in metadata JSON."""
+
+        value = (self.metadata_json or {}).get("notes") if isinstance(self.metadata_json, dict) else None
+        return value if isinstance(value, str) else None
+
 
 class Verification(Base):
     __tablename__ = "verifications"

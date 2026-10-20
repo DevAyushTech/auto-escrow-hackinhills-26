@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import json
 from typing import Annotated, Any, Literal
 
 from pydantic import (
@@ -29,6 +30,9 @@ MAX_DESCRIPTION_LENGTH = 20000
 MAX_EXPECTED_OUTPUT_LENGTH = 20000
 MAX_AGREEMENT_TERM_LENGTH = 20000
 MAX_AGREEMENT_RATIONALE_LENGTH = 4000
+MAX_SUBMISSION_OUTPUT_LENGTH = 100000
+MAX_SUBMISSION_NOTES_LENGTH = 4000
+MAX_SUBMISSION_EVIDENCE_BYTES = 64000
 
 
 def _currency(value: str) -> str:
@@ -291,6 +295,10 @@ class AgreementTerms(APIModel):
             max_length=MAX_AGREEMENT_TERM_LENGTH,
         ),
     ] = None
+    # Optional deterministic evaluator configuration.  It is part of the
+    # accepted agreement snapshot, so clients cannot change verification rules
+    # after acceptance.
+    verification_rules: dict[str, Any] | None = None
 
     @field_validator(
         "scope",
@@ -324,6 +332,19 @@ class AgreementTerms(APIModel):
                 )
             normalized.append(item)
         return normalized
+
+    @field_validator("verification_rules")
+    @classmethod
+    def validate_verification_rules(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        try:
+            encoded = json.dumps(value, separators=(",", ":"), ensure_ascii=True)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("verification_rules must contain JSON-compatible values") from exc
+        if len(encoded.encode("utf-8")) > MAX_SUBMISSION_EVIDENCE_BYTES:
+            raise ValueError("verification_rules is too large")
+        return value
 
 
 def _validate_optional_budget(value: Decimal | None) -> Decimal | None:
@@ -511,25 +532,106 @@ class EscrowFundRequest(APIModel):
         return normalized
 
 
+class SubmissionCreate(APIModel):
+    """User-supplied work output; content is stored and never executed."""
+
+    submitted_output: StrictStr = Field(min_length=1, max_length=MAX_SUBMISSION_OUTPUT_LENGTH)
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    notes: StrictStr | None = Field(default=None, max_length=MAX_SUBMISSION_NOTES_LENGTH)
+    agent_id: StrictInt | None = Field(default=None, gt=0)
+
+    @field_validator("submitted_output", "notes", mode="before")
+    @classmethod
+    def normalize_submission_text(cls, value: Any) -> Any:
+        if value is None or not isinstance(value, str):
+            return value
+        normalized = value.strip()
+        return normalized or None
+
+    @field_validator("evidence")
+    @classmethod
+    def validate_submission_evidence(cls, value: dict[str, Any]) -> dict[str, Any]:
+        try:
+            encoded = json.dumps(value, separators=(",", ":"), ensure_ascii=True)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("evidence must contain JSON-compatible values") from exc
+        if len(encoded.encode("utf-8")) > MAX_SUBMISSION_EVIDENCE_BYTES:
+            raise ValueError("evidence is too large")
+        return value
+
+
 class SubmissionResponse(APIModel):
     id: int
     job_id: int
     agent_id: int
     version: int
+    artifact_url: StrictStr
+    content: StrictStr | None = None
     submitted_output: StrictStr
     evidence: dict[str, Any]
+    notes: StrictStr | None = None
     status: Literal["pending", "accepted", "rejected"]
     submitted_at: datetime
 
 
 class VerificationResponse(APIModel):
     id: int
+    job_id: int
     submission_id: int
-    overall_result: Literal["pending", "passed", "failed", "needs_revision"]
+    submission_version: int
+    status: Literal["pending", "passed", "failed"]
+    overall_result: Literal["pending", "passed", "failed", "manual_review", "needs_revision"]
     individual_checks: list[dict[str, Any]]
     reasons: list[StrictStr]
     evaluator_type: Literal["automated", "human", "hybrid"]
+    score: Decimal | None = None
+    feedback: dict[str, Any] = Field(default_factory=dict)
     evaluated_at: datetime | None = None
+    verified_at: datetime | None = None
+
+
+ExecutionStatus = Literal[
+    "blocked",
+    "ready",
+    "awaiting_submission",
+    "awaiting_verification",
+    "retry_available",
+    "manual_review",
+    "settlement_ready",
+    "completed",
+    "disputed",
+    "cancelled",
+]
+
+
+class ExecutionResponse(APIModel):
+    job_id: int
+    job_status: JobStatus
+    execution_status: ExecutionStatus
+    selected_agent_id: int | None = None
+    executor_agent_id: int | None = None
+    agreement_id: int | None = None
+    accepted_agreement_version: int | None = None
+    escrow_status: Literal["pending", "funded", "held", "released", "refunded", "disputed"] | None = None
+    executor_type: Literal["local_demo"] = "local_demo"
+    can_start: bool
+    can_submit: bool
+    can_verify: bool
+    start_reason: StrictStr
+    submit_reason: StrictStr
+    verify_reason: StrictStr
+    started_at: datetime | None = None
+    latest_submission_version: int | None = None
+    latest_verification_result: Literal["pending", "passed", "failed", "manual_review", "needs_revision"] | None = None
+
+
+class DashboardExecutionMetrics(APIModel):
+    jobs_running: int
+    jobs_awaiting_submission: int
+    jobs_awaiting_verification: int
+    jobs_eligible_for_settlement: int
+    recent_submissions: list[SubmissionResponse] = Field(default_factory=list)
+    recent_verifications: list[VerificationResponse] = Field(default_factory=list)
 
 
 class DisputeResponse(APIModel):

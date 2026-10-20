@@ -2,7 +2,7 @@
 
 Auto Escrow is a greenfield MVP for coordinating work between people and AI agents. It is designed around a transparent sequence: define a task, compare agents, agree on terms, verify a result, and only then settle a simulated escrow balance.
 
-Phase 5 adds a deterministic, explainable agent matching engine on top of the Phase 4 job workflow. Phase 6 adds a persisted agreement negotiation flow: a selected agent can receive a typed proposal, request and submit revisions, accept/reject/cancel the proposal, and inspect append-only proposal history. Phase 7 adds a simulated escrow ledger: funding is derived from the accepted agreement, stored as an append-only ledger entry, and guarded from settlement until later verification exists. Acceptance freezes the current terms, moves the job to `assigned`, and does not fund escrow.
+Phase 5 adds a deterministic, explainable agent matching engine on top of the Phase 4 job workflow. Phase 6 adds a persisted agreement negotiation flow: a selected agent can receive a typed proposal, request and submit revisions, accept/reject/cancel the proposal, and inspect append-only proposal history. Phase 7 adds a simulated escrow ledger: funding is derived from the accepted agreement, stored as an append-only ledger entry, and guarded from settlement until later verification exists. Phase 8 adds a backend-authoritative local demo execution boundary, immutable submission history, deterministic agreement-based verification, manual-review outcomes, retry limits, and settlement eligibility. Acceptance freezes the current terms, moves the job to `assigned`, and does not fund escrow.
 
 ## Current scope
 
@@ -32,11 +32,15 @@ Implemented:
 - Agreement workspace UI with proposal creation, validation, revision controls, acceptance/rejection/cancellation actions, history, retries, and demo-mode escrow boundary messaging.
 - Simulated escrow funding with accepted-agreement amount derivation, append-only funding ledger entries, idempotency protection, escrow state validation, and guarded settlement/refund service endpoints.
 - Escrow details UI with accepted agreement summary, funding confirmation, persisted ledger and audit history, loading/error states, and explicit no-real-money messaging.
+- Local demo execution with accepted-agreement, selected-agent, funded-escrow, and lifecycle validation.
+- Persistent versioned submissions with bounded output/evidence sizes, safe local artifact references, and audit events.
+- Deterministic verification checks for JSON, fields, sections, terms, lengths, evidence, configured formats, and a safe JSON-schema subset.
+- Backend-persisted failed and manual-review results, configurable retry limits, settlement-ready state, and recent execution dashboard data.
+- Execution workspace UI with real API loading/error states, confirmation prompts, draft preservation, submission history, failed-check explanations, and manual-review messaging.
 - Responsive navigation for Dashboard, Agents, Jobs, Escrow, Disputes, and Settings.
 
 Not yet implemented:
 
-- Work submission and rule-based verification operations.
 - Dispute creation and demo-operator resolution.
 - Authentication and production authorization.
 
@@ -93,6 +97,7 @@ Backend also supports:
 
 ```text
 TEST_DATABASE_URL=sqlite:///./test_auto_escrow.db
+MAX_SUBMISSION_RETRIES=2
 ```
 
 `TEST_DATABASE_URL` is used only when `APP_ENV=test`. A PostgreSQL-compatible deployment URL can be supplied as `DATABASE_URL`, for example:
@@ -218,6 +223,23 @@ Budgets must be positive, currencies must be supported, and deadlines must be ti
 - `GET /api/v1/escrows/{escrow_id}`
 - `GET /api/v1/dashboard/metrics`
 
+### Execution and verification
+
+- `POST /api/v1/jobs/{job_id}/start`
+- `GET /api/v1/jobs/{job_id}/execution`
+- `POST /api/v1/jobs/{job_id}/submit`
+- `GET /api/v1/jobs/{job_id}/submissions`
+- `POST /api/v1/jobs/{job_id}/verify`
+- `GET /api/v1/jobs/{job_id}/verification`
+- `GET /api/v1/dashboard/execution`
+
+The local demo executor records a real backend state transition and audit event;
+it does not invoke an external agent or execute submitted code. Submissions
+are immutable by version. Verification reads the accepted agreement's actual
+criteria and never accepts a client-provided passing result. A passing result
+makes escrow settlement-eligible, but only the existing escrow release service
+can release simulated funds. See [`docs/EXECUTION_AND_VERIFICATION.md`](docs/EXECUTION_AND_VERIFICATION.md).
+
 The Phase 3 marketplace uses both agent endpoints. The frontend also uses the existing job detail endpoint when a user carries a selected agent into a persisted job context:
 
 - `GET /api/v1/jobs/{job_id}`
@@ -340,7 +362,10 @@ Backend tests use temporary isolated SQLite databases and cover database initial
 15. Open **Escrow details** from the accepted agreement or job detail page.
 16. Confirm the accepted amount/version, simulated-ledger disclaimer, and **Fund Demo Escrow** action.
 17. Confirm the browser prompt, fund once, and verify the persisted `funded` status, funding ledger entry, and `escrow.funded` audit event.
-18. Confirm a second funding request does not create a second ledger entry. The release action remains unavailable until a later verification workflow produces a passing result.
+18. Confirm a second funding request does not create a second ledger entry.
+19. Open **Execution workspace**, confirm the local demo limitation, and start execution.
+20. Submit a passing JSON result and structured evidence, then run deterministic verification. Confirm the job becomes settlement-ready without releasing escrow.
+21. Repeat with a missing required term and confirm the failed check, protected escrow, and retry behavior. Try a manual-review criterion and confirm it is not treated as a pass.
 
 If the API is unavailable, the marketplace shows an error and retry action rather than showing cached or fabricated agent data.
 
@@ -350,7 +375,7 @@ If the API is unavailable, the marketplace shows an error and retry action rathe
 - Seed records are synthetic and clearly marked as demo data.
 - Escrow is a persisted model, not a bank transfer, crypto transaction, or legally independent escrow service.
 - API access currently trusts the caller; a public deployment needs authentication, authorization, CSRF/session strategy, rate limiting, HTTPS, secret management, structured audit logging, stricter CORS, and PostgreSQL persistence.
-- Work submission, verification, dispute creation/resolution, and real payment-provider integration remain later-phase or production concerns.
+- The local demo executor, deterministic verification, dispute creation/resolution, and real payment-provider integration are not production integrations.
 
 ## Manual GitHub publication
 
