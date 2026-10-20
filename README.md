@@ -13,7 +13,7 @@ Implemented:
 - Environment-backed settings and local-origin CORS.
 - SQLAlchemy 2 models with relationships, foreign keys, indexes, uniqueness constraints, and database checks.
 - SQLite local database with PostgreSQL-compatible URL support.
-- Alembic revisions `0001_phase1_foundation`, `0002_escrow_domain`, `0003_explicit_domain_fields`, `0004_optional_job_requester`, `0005_audit_event_description`, `0006_matching_results`, `0007_agreement_negotiation`, and `0008_simulated_escrow_lifecycle`.
+- Alembic revisions `0001_phase1_foundation`, `0002_escrow_domain`, `0003_explicit_domain_fields`, `0004_optional_job_requester`, `0005_audit_event_description`, `0006_matching_results`, `0007_agreement_negotiation`, `0008_simulated_escrow_lifecycle`, and `0009_dispute_workflow`.
 - Decimal-safe `NUMERIC(18,2)` money fields and fixed-point API serialization.
 - Validated Pydantic request/response contracts.
 - Versioned FastAPI endpoints for agents, jobs, agreements, escrow lookup, audit activity, and persisted dashboard metrics.
@@ -37,11 +37,12 @@ Implemented:
 - Deterministic verification checks for JSON, fields, sections, terms, lengths, evidence, configured formats, and a safe JSON-schema subset.
 - Backend-persisted failed and manual-review results, configurable retry limits, settlement-ready state, and recent execution dashboard data.
 - Execution workspace UI with real API loading/error states, confirmation prompts, draft preservation, submission history, failed-check explanations, and manual-review messaging.
+- Persisted dispute creation, review, demo-operator resolution, evidence display, dispute-specific audit events, and escrow/job protection.
+- Dispute list/detail/create UI integrated with job details and escrow pages.
 - Responsive navigation for Dashboard, Agents, Jobs, Escrow, Disputes, and Settings.
 
 Not yet implemented:
 
-- Dispute creation and demo-operator resolution.
 - Authentication and production authorization.
 
 The UI deliberately does not invent the remaining workflows or claim that a simulated ledger moves real money.
@@ -240,6 +241,23 @@ criteria and never accepts a client-provided passing result. A passing result
 makes escrow settlement-eligible, but only the existing escrow release service
 can release simulated funds. See [`docs/EXECUTION_AND_VERIFICATION.md`](docs/EXECUTION_AND_VERIFICATION.md).
 
+### Disputes
+
+- `POST /api/v1/jobs/{job_id}/disputes`
+- `GET /api/v1/jobs/{job_id}/disputes`
+- `GET /api/v1/disputes?status=open|under_review|resolved|rejected`
+- `GET /api/v1/disputes/{dispute_id}`
+- `POST /api/v1/disputes/{dispute_id}/review`
+- `POST /api/v1/disputes/{dispute_id}/resolve`
+- `GET /api/v1/disputes/{dispute_id}/events`
+
+Opening a dispute moves the related job and funded escrow into protected
+`disputed` states and blocks normal settlement. Review and resolution use the
+development/test-only `X-Demo-Operator: demo-operator` boundary; this is not
+production authentication or independent arbitration. Release and refund
+outcomes call the existing escrow service and preserve ledger history. See
+[`docs/DISPUTES.md`](docs/DISPUTES.md).
+
 The Phase 3 marketplace uses both agent endpoints. The frontend also uses the existing job detail endpoint when a user carries a selected agent into a persisted job context:
 
 - `GET /api/v1/jobs/{job_id}`
@@ -366,6 +384,8 @@ Backend tests use temporary isolated SQLite databases and cover database initial
 19. Open **Execution workspace**, confirm the local demo limitation, and start execution.
 20. Submit a passing JSON result and structured evidence, then run deterministic verification. Confirm the job becomes settlement-ready without releasing escrow.
 21. Repeat with a missing required term and confirm the failed check, protected escrow, and retry behavior. Try a manual-review criterion and confirm it is not treated as a pass.
+22. From a funded job or escrow page, open a dispute, review its persisted evidence and verification context, and confirm settlement is blocked.
+23. In development/test mode, begin review with the demo operator boundary and resolve as release, refund, or reject. Confirm the resulting job, escrow, ledger, and audit records.
 
 If the API is unavailable, the marketplace shows an error and retry action rather than showing cached or fabricated agent data.
 
@@ -375,7 +395,7 @@ If the API is unavailable, the marketplace shows an error and retry action rathe
 - Seed records are synthetic and clearly marked as demo data.
 - Escrow is a persisted model, not a bank transfer, crypto transaction, or legally independent escrow service.
 - API access currently trusts the caller; a public deployment needs authentication, authorization, CSRF/session strategy, rate limiting, HTTPS, secret management, structured audit logging, stricter CORS, and PostgreSQL persistence.
-- The local demo executor, deterministic verification, dispute creation/resolution, and real payment-provider integration are not production integrations.
+- The local demo executor, deterministic verification, demo dispute resolution, and real payment-provider integration are not production integrations.
 
 ## Manual GitHub publication
 

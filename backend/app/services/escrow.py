@@ -392,7 +392,14 @@ def _terminal_conflict(escrow: Escrow) -> None:
         raise EscrowStateConflictError("escrow is already settled")
 
 
-def _settle_escrow(db: Session, escrow_id: int, target: str) -> Escrow:
+def _settle_escrow(
+    db: Session,
+    escrow_id: int,
+    target: str,
+    *,
+    commit: bool = True,
+    rollback_on_error: bool = True,
+) -> Escrow:
     try:
         escrow = db.scalar(select(Escrow).where(Escrow.id == escrow_id).with_for_update())
         if escrow is None:
@@ -401,6 +408,15 @@ def _settle_escrow(db: Session, escrow_id: int, target: str) -> Escrow:
         if job is None:
             raise JobNotFoundForEscrowError("job not found")
         _terminal_conflict(escrow)
+
+        unresolved_dispute = db.scalar(
+            select(Dispute.id).where(
+                Dispute.escrow_id == escrow.id,
+                Dispute.status.in_(("open", "under_review")),
+            ).limit(1)
+        )
+        if unresolved_dispute is not None:
+            raise EscrowStateConflictError("an unresolved dispute blocks settlement")
 
         resolution = _dispute_resolution(db, escrow.id, target)
         if escrow.status == "disputed":
@@ -459,23 +475,49 @@ def _settle_escrow(db: Session, escrow_id: int, target: str) -> Escrow:
                 "status": escrow.status,
             },
         )
-        _commit_or_conflict(db)
+        if commit:
+            _commit_or_conflict(db)
         return get_escrow(db, escrow.id) or escrow
     except Exception:
-        db.rollback()
+        if rollback_on_error:
+            db.rollback()
         raise
 
 
-def release_escrow(db: Session, escrow_id: int) -> Escrow:
+def release_escrow(
+    db: Session,
+    escrow_id: int,
+    *,
+    commit: bool = True,
+    rollback_on_error: bool = True,
+) -> Escrow:
     """Release only after a completed job has a passed verification."""
 
-    return _settle_escrow(db, escrow_id, "released")
+    return _settle_escrow(
+        db,
+        escrow_id,
+        "released",
+        commit=commit,
+        rollback_on_error=rollback_on_error,
+    )
 
 
-def refund_escrow(db: Session, escrow_id: int) -> Escrow:
+def refund_escrow(
+    db: Session,
+    escrow_id: int,
+    *,
+    commit: bool = True,
+    rollback_on_error: bool = True,
+) -> Escrow:
     """Refund only through an authoritative resolved-dispute decision."""
 
-    return _settle_escrow(db, escrow_id, "refunded")
+    return _settle_escrow(
+        db,
+        escrow_id,
+        "refunded",
+        commit=commit,
+        rollback_on_error=rollback_on_error,
+    )
 
 
 __all__ = [

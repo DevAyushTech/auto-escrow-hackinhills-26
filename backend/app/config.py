@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     # One initial submission plus this many retries is the demo default.  A
     # deployment can lower or raise it without changing the state machine.
     max_submission_retries: int = 2
+    demo_resolution_operator: str = "demo-operator"
 
     model_config = SettingsConfigDict(
         env_file=".env",

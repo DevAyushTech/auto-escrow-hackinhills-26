@@ -29,12 +29,13 @@ MATCHING_JOB_STATUS: Final[str] = "open"
 # workflow services can share one authoritative transition policy.
 JOB_STATE_TRANSITIONS: Final[dict[str, frozenset[str]]] = {
     "open": frozenset({"assigned", "cancelled"}),
-    "assigned": frozenset({"in_progress", "cancelled"}),
+    "assigned": frozenset({"in_progress", "disputed", "cancelled"}),
     "in_progress": frozenset({"submitted", "disputed", "cancelled"}),
     "submitted": frozenset({"under_review", "disputed"}),
     "under_review": frozenset({"completed", "submitted", "disputed"}),
-    "completed": frozenset(),
-    "disputed": frozenset({"under_review", "completed", "cancelled"}),
+    # A completed job may be paused into a dispute before settlement.
+    "completed": frozenset({"disputed"}),
+    "disputed": frozenset({"assigned", "in_progress", "submitted", "under_review", "completed", "cancelled"}),
     "cancelled": frozenset(),
 }
 

@@ -23,6 +23,7 @@ The application never creates, resets, drops, or downgrades tables during startu
 APP_ENV=development
 DATABASE_URL=sqlite:///./auto_escrow.db
 FRONTEND_ORIGIN=http://localhost:5173
+DEMO_RESOLUTION_OPERATOR=demo-operator
 ```
 
 When `APP_ENV=test`, `TEST_DATABASE_URL` may point tests or migration checks at an isolated database. PostgreSQL URLs can use `postgresql+psycopg://...`.
@@ -39,7 +40,8 @@ The current chain is:
   -> 0005_audit_event_description
   -> 0006_matching_results
   -> 0007_agreement_negotiation
-  -> 0008_simulated_escrow_lifecycle (head)
+  -> 0008_simulated_escrow_lifecycle
+  -> 0009_dispute_workflow (head)
 ```
 
 Run:
@@ -198,11 +200,11 @@ The escrow state machine is centralized in `app/escrow_states.py`. It permits
 `pending -> funded`, `funded -> held/released/refunded/disputed`, and
 `held -> released/refunded/disputed`. A disputed escrow can settle only after
 a persisted resolved dispute explicitly authorizes the requested release or
-refund. Release is also guarded by a completed job and a passed verification;
-with the current Phase 7 data model it returns `409 verification is required`
-until those conditions exist. Refund is not an unrestricted client operation
-and returns `409 refund requires a valid dispute resolution` without an
-authoritative resolved dispute. Settlement entries are atomic and cannot
+refund, and any unresolved dispute blocks settlement regardless of the escrow
+status. Release is also guarded by a completed job and a passed verification
+for normal non-dispute settlement. Refund is not an unrestricted client
+operation and returns `409 refund requires a valid dispute resolution` without
+an authoritative resolved dispute. Settlement entries are atomic and cannot
 exceed the funded balance or combine released and refunded effects.
 
 Funding, ledger persistence, state changes, and `escrow.created`/

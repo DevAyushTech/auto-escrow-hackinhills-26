@@ -357,6 +357,47 @@ export type JobEventDto = {
   created_at: string
 }
 
+export type DisputeCategory = 'failed_verification' | 'deliverable_incomplete' | 'agreement_mismatch' | 'deadline_issue' | 'other'
+export type DisputeStatus = 'open' | 'under_review' | 'resolved' | 'rejected'
+export type DisputeResolution = 'release' | 'refund' | 'reject'
+
+export type DisputeDto = {
+  id: number
+  job_id: number
+  escrow_id: number | null
+  raised_by_agent_id: number
+  category: DisputeCategory
+  status: DisputeStatus
+  reason: string
+  description: string
+  evidence: Record<string, unknown>
+  submission_id: number | null
+  verification_id: number | null
+  previous_job_status: JobStatus | null
+  previous_escrow_status: EscrowStatus | null
+  resolution: DisputeResolution | null
+  resolution_rationale: string | null
+  resolved_by_operator: string | null
+  created_at: string
+  reviewed_at: string | null
+  resolved_at: string | null
+  updated_at: string
+  agreement_terms: Record<string, unknown>
+  job_requirements: Record<string, unknown>
+  submission: SubmissionDto | null
+  verification: VerificationDto | null
+  events: JobEventDto[]
+}
+
+export type CreateDisputePayload = {
+  escrow_id: number
+  category: DisputeCategory
+  reason: string
+  description: string
+  evidence: Record<string, unknown>
+  raised_by_agent_id: number
+}
+
 export class ApiError extends Error {
   readonly status?: number
   readonly code?: string
@@ -703,6 +744,33 @@ function parseVerification(payload: unknown): VerificationDto | undefined {
   return { id: payload.id, job_id: payload.job_id, submission_id: payload.submission_id, submission_version: payload.submission_version, status: payload.status as VerificationStatus, overall_result: payload.overall_result as VerificationResult, individual_checks: checks as VerificationCheckDto[], reasons: payload.reasons, evaluator_type: payload.evaluator_type as VerificationDto['evaluator_type'], score: payload.score === undefined ? null : payload.score, feedback: payload.feedback, evaluated_at: payload.evaluated_at === undefined ? null : payload.evaluated_at, verified_at: payload.verified_at === undefined ? null : payload.verified_at }
 }
 
+const disputeCategories: DisputeCategory[] = ['failed_verification', 'deliverable_incomplete', 'agreement_mismatch', 'deadline_issue', 'other']
+const disputeStatuses: DisputeStatus[] = ['open', 'under_review', 'resolved', 'rejected']
+const disputeResolutions: DisputeResolution[] = ['release', 'refund', 'reject']
+
+function parseDispute(payload: unknown): DisputeDto | undefined {
+  if (!isRecord(payload) || !requiredInteger(payload.id) || !requiredInteger(payload.job_id) || !requiredNullableInteger(payload.escrow_id) || !requiredInteger(payload.raised_by_agent_id) || !disputeCategories.includes(payload.category as DisputeCategory) || !disputeStatuses.includes(payload.status as DisputeStatus) || !requiredString(payload.reason) || !requiredString(payload.description) || !isRecord(payload.evidence) || !requiredNullableInteger(payload.submission_id) || !requiredNullableInteger(payload.verification_id) || !requiredString(payload.created_at) || !requiredString(payload.updated_at) || (payload.previous_job_status !== null && payload.previous_job_status !== undefined && !jobStatuses.includes(payload.previous_job_status as JobStatus)) || (payload.previous_escrow_status !== null && payload.previous_escrow_status !== undefined && !escrowStatuses.includes(payload.previous_escrow_status as EscrowStatus)) || (payload.resolution !== null && payload.resolution !== undefined && !disputeResolutions.includes(payload.resolution as DisputeResolution)) || (payload.resolution_rationale !== null && payload.resolution_rationale !== undefined && !requiredString(payload.resolution_rationale)) || (payload.resolved_by_operator !== null && payload.resolved_by_operator !== undefined && !requiredString(payload.resolved_by_operator)) || (payload.reviewed_at !== null && payload.reviewed_at !== undefined && !requiredString(payload.reviewed_at)) || (payload.resolved_at !== null && payload.resolved_at !== undefined && !requiredString(payload.resolved_at)) || !isRecord(payload.agreement_terms) || !isRecord(payload.job_requirements)) return undefined
+  const submission = payload.submission === null || payload.submission === undefined ? null : parseSubmission(payload.submission)
+  const verification = payload.verification === null || payload.verification === undefined ? null : parseVerification(payload.verification)
+  const eventsValue = payload.events === undefined ? [] : parseJobEvents(payload.events)
+  if (payload.submission !== null && payload.submission !== undefined && !submission) return undefined
+  if (payload.verification !== null && payload.verification !== undefined && !verification) return undefined
+  return { id: payload.id, job_id: payload.job_id, escrow_id: payload.escrow_id, raised_by_agent_id: payload.raised_by_agent_id, category: payload.category as DisputeCategory, status: payload.status as DisputeStatus, reason: payload.reason, description: payload.description, evidence: payload.evidence, submission_id: payload.submission_id, verification_id: payload.verification_id, previous_job_status: payload.previous_job_status === undefined ? null : payload.previous_job_status as JobStatus | null, previous_escrow_status: payload.previous_escrow_status === undefined ? null : payload.previous_escrow_status as EscrowStatus | null, resolution: payload.resolution === undefined ? null : payload.resolution as DisputeResolution | null, resolution_rationale: payload.resolution_rationale === undefined ? null : payload.resolution_rationale, resolved_by_operator: payload.resolved_by_operator === undefined ? null : payload.resolved_by_operator, created_at: payload.created_at, reviewed_at: payload.reviewed_at === undefined ? null : payload.reviewed_at, resolved_at: payload.resolved_at === undefined ? null : payload.resolved_at, updated_at: payload.updated_at, agreement_terms: payload.agreement_terms, job_requirements: payload.job_requirements, submission: submission ?? null, verification: verification ?? null, events: eventsValue }
+}
+
+function parseDisputes(payload: unknown): DisputeDto[] {
+  if (!Array.isArray(payload)) throw contractError('disputes')
+  const disputes = payload.map(parseDispute)
+  if (disputes.some((item): item is undefined => item === undefined)) throw contractError('disputes')
+  return disputes as DisputeDto[]
+}
+
+function parseDisputeResponse(payload: unknown): DisputeDto {
+  const dispute = parseDispute(payload)
+  if (!dispute) throw contractError('dispute')
+  return dispute
+}
+
 function parseExecution(payload: unknown): ExecutionDto {
   if (!isRecord(payload) || !requiredInteger(payload.job_id) || !jobStatuses.includes(payload.job_status as JobStatus) || !executionStatuses.includes(payload.execution_status as ExecutionStatus) || !requiredNullableInteger(payload.selected_agent_id) || !requiredNullableInteger(payload.executor_agent_id) || !requiredNullableInteger(payload.agreement_id) || !requiredNullableInteger(payload.accepted_agreement_version) || (payload.escrow_status !== null && payload.escrow_status !== undefined && !escrowStatuses.includes(payload.escrow_status as EscrowStatus)) || payload.executor_type !== 'local_demo' || typeof payload.can_start !== 'boolean' || typeof payload.can_submit !== 'boolean' || typeof payload.can_verify !== 'boolean' || !requiredString(payload.start_reason) || !requiredString(payload.submit_reason) || !requiredString(payload.verify_reason) || (payload.started_at !== null && payload.started_at !== undefined && !requiredString(payload.started_at)) || !requiredNullableInteger(payload.latest_submission_version) || (payload.latest_verification_result !== null && payload.latest_verification_result !== undefined && !verificationResults.includes(payload.latest_verification_result as VerificationResult))) throw contractError('execution')
   return { job_id: payload.job_id, job_status: payload.job_status as JobStatus, execution_status: payload.execution_status as ExecutionStatus, selected_agent_id: payload.selected_agent_id, executor_agent_id: payload.executor_agent_id, agreement_id: payload.agreement_id, accepted_agreement_version: payload.accepted_agreement_version, escrow_status: payload.escrow_status === undefined ? null : payload.escrow_status as EscrowStatus | null, executor_type: 'local_demo', can_start: payload.can_start, can_submit: payload.can_submit, can_verify: payload.can_verify, start_reason: payload.start_reason, submit_reason: payload.submit_reason, verify_reason: payload.verify_reason, started_at: payload.started_at === undefined ? null : payload.started_at, latest_submission_version: payload.latest_submission_version, latest_verification_result: payload.latest_verification_result === undefined ? null : payload.latest_verification_result as VerificationResult | null }
@@ -955,6 +1023,13 @@ export const api = {
   submissions: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/submissions`).then(parseSubmissions),
   verifyJob: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/verify`, { method: 'POST' }).then(parseVerificationResponse),
   jobVerification: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/verification`).then((payload) => payload === undefined ? null : parseVerificationResponse(payload)),
+  disputes: (status?: DisputeStatus) => request<unknown>(`/api/v1/disputes${status ? `?status=${encodeURIComponent(status)}` : ''}`).then(parseDisputes),
+  jobDisputes: (jobId: number, status?: DisputeStatus) => request<unknown>(`/api/v1/jobs/${jobId}/disputes${status ? `?status=${encodeURIComponent(status)}` : ''}`).then(parseDisputes),
+  dispute: (disputeId: number) => request<unknown>(`/api/v1/disputes/${disputeId}`).then(parseDisputeResponse),
+  createDispute: (jobId: number, payload: CreateDisputePayload) => request<unknown>(`/api/v1/jobs/${jobId}/disputes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 201).then(parseDisputeResponse),
+  reviewDispute: (disputeId: number, rationale?: string, operator = 'demo-operator') => request<unknown>(`/api/v1/disputes/${disputeId}/review`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Demo-Operator': operator }, body: JSON.stringify(rationale ? { rationale } : {}) }).then(parseDisputeResponse),
+  resolveDispute: (disputeId: number, resolution: DisputeResolution, rationale: string, operator = 'demo-operator') => request<unknown>(`/api/v1/disputes/${disputeId}/resolve`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Demo-Operator': operator }, body: JSON.stringify({ resolution, rationale }) }).then(parseDisputeResponse),
+  disputeEvents: (disputeId: number) => request<unknown>(`/api/v1/disputes/${disputeId}/events`).then(parseJobEvents),
 }
 
 export { baseUrl }

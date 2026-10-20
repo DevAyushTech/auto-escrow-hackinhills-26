@@ -33,6 +33,10 @@ MAX_AGREEMENT_RATIONALE_LENGTH = 4000
 MAX_SUBMISSION_OUTPUT_LENGTH = 100000
 MAX_SUBMISSION_NOTES_LENGTH = 4000
 MAX_SUBMISSION_EVIDENCE_BYTES = 64000
+MAX_DISPUTE_DESCRIPTION_LENGTH = 12000
+MAX_DISPUTE_REASON_LENGTH = 160
+MAX_DISPUTE_RATIONALE_LENGTH = 4000
+MAX_DISPUTE_EVIDENCE_BYTES = 64000
 
 
 def _currency(value: str) -> str:
@@ -634,18 +638,96 @@ class DashboardExecutionMetrics(APIModel):
     recent_verifications: list[VerificationResponse] = Field(default_factory=list)
 
 
+DisputeCategory = Literal[
+    "failed_verification",
+    "deliverable_incomplete",
+    "agreement_mismatch",
+    "deadline_issue",
+    "other",
+]
+DisputeStatus = Literal["open", "under_review", "resolved", "rejected"]
+DisputeResolution = Literal["release", "refund", "reject"]
+
+
+class DisputeCreate(APIModel):
+    escrow_id: StrictInt = Field(gt=0)
+    category: DisputeCategory
+    reason: StrictStr = Field(min_length=1, max_length=MAX_DISPUTE_REASON_LENGTH)
+    description: StrictStr = Field(min_length=1, max_length=MAX_DISPUTE_DESCRIPTION_LENGTH)
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    raised_by_agent_id: StrictInt = Field(gt=0)
+
+    @field_validator("reason", "description", mode="before")
+    @classmethod
+    def normalize_dispute_text(cls, value: Any) -> Any:
+        if value is None or not isinstance(value, str):
+            return value
+        normalized = value.strip()
+        return normalized or None
+
+    @field_validator("evidence")
+    @classmethod
+    def validate_dispute_evidence(cls, value: dict[str, Any]) -> dict[str, Any]:
+        try:
+            encoded = json.dumps(value, separators=(",", ":"), ensure_ascii=True)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("evidence must contain JSON-compatible values") from exc
+        if len(encoded.encode("utf-8")) > MAX_DISPUTE_EVIDENCE_BYTES:
+            raise ValueError("evidence is too large")
+        return value
+
+
+class DisputeReviewRequest(APIModel):
+    rationale: StrictStr | None = Field(default=None, max_length=MAX_DISPUTE_RATIONALE_LENGTH)
+
+    @field_validator("rationale", mode="before")
+    @classmethod
+    def normalize_review_rationale(cls, value: Any) -> Any:
+        if value is None or not isinstance(value, str):
+            return value
+        normalized = value.strip()
+        return normalized or None
+
+
+class DisputeResolveRequest(APIModel):
+    resolution: DisputeResolution
+    rationale: StrictStr = Field(min_length=10, max_length=MAX_DISPUTE_RATIONALE_LENGTH)
+
+    @field_validator("rationale", mode="before")
+    @classmethod
+    def normalize_resolution_rationale(cls, value: Any) -> Any:
+        if value is None or not isinstance(value, str):
+            return value
+        normalized = value.strip()
+        return normalized or None
+
+
 class DisputeResponse(APIModel):
     id: int
     job_id: int
     escrow_id: int | None = None
     raised_by_agent_id: int
-    status: Literal["open", "under_review", "resolved", "rejected"]
+    category: DisputeCategory
+    status: DisputeStatus
     reason: StrictStr
+    description: StrictStr
     evidence: dict[str, Any]
-    resolution: StrictStr | None = None
+    submission_id: int | None = None
+    verification_id: int | None = None
+    previous_job_status: JobStatus | None = None
+    previous_escrow_status: Literal["pending", "funded", "held", "released", "refunded", "disputed"] | None = None
+    resolution: DisputeResolution | None = None
     resolution_rationale: StrictStr | None = None
+    resolved_by_operator: StrictStr | None = None
     created_at: datetime
+    reviewed_at: datetime | None = None
     resolved_at: datetime | None = None
+    updated_at: datetime
+    agreement_terms: dict[str, Any] = Field(default_factory=dict)
+    job_requirements: dict[str, Any] = Field(default_factory=dict)
+    submission: SubmissionResponse | None = None
+    verification: VerificationResponse | None = None
+    events: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class JobEventResponse(APIModel):

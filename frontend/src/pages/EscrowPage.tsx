@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react'
 import { ArrowLeft, CheckCircle2, CircleDollarSign, Clock3, FileText, LoaderCircle, ShieldCheck } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 import { StatusPill } from '../components/StatusPill'
-import { ApiError, api, type AgreementDto, type EscrowDto, type EscrowStatus, type JobDetailDto, type JobEventDto, type JobStatus, type LedgerEntryDto } from '../lib/api'
+import { ApiError, api, type AgreementDto, type DisputeDto, type EscrowDto, type EscrowStatus, type JobDetailDto, type JobEventDto, type JobStatus, type LedgerEntryDto } from '../lib/api'
 
 type PageState =
   | { status: 'loading' }
-  | { status: 'success'; job: JobDetailDto; agreement: AgreementDto | null; escrow: EscrowDto | null; ledger: LedgerEntryDto[]; events: JobEventDto[] }
+  | { status: 'success'; job: JobDetailDto; agreement: AgreementDto | null; escrow: EscrowDto | null; ledger: LedgerEntryDto[]; events: JobEventDto[]; disputes: DisputeDto[] }
   | { status: 'error'; message: string }
 
 const jobStatusLabels: Record<JobStatus, string> = {
@@ -65,15 +65,26 @@ function canFund(job: JobDetailDto, agreement: AgreementDto | null, escrow: Escr
 }
 
 async function loadPageData(jobId: number): Promise<Omit<Extract<PageState, { status: 'success' }>, 'status'>> {
-  const [job, agreement, escrow, events] = await Promise.all([api.job(jobId), api.agreement(jobId), api.jobEscrow(jobId), api.jobEvents(jobId)])
-  if (escrow === null) return { job, agreement, escrow, ledger: [], events }
+  const [job, agreement, escrow, events, disputes] = await Promise.all([
+    api.job(jobId),
+    api.agreement(jobId),
+    api.jobEscrow(jobId),
+    api.jobEvents(jobId),
+    api.jobDisputes(jobId).catch((error: unknown) => {
+      // Keep the existing escrow page usable against a pre-Phase-9 backend;
+      // the Phase 9 API returns a real list and is used whenever available.
+      if (error instanceof ApiError && error.status === 404) return []
+      throw error
+    }),
+  ])
+  if (escrow === null) return { job, agreement, escrow, ledger: [], events, disputes }
 
   try {
     const ledger = await api.escrowLedger(escrow.id)
-    return { job, agreement, escrow, ledger, events }
+    return { job, agreement, escrow, ledger, events, disputes }
   } catch (error: unknown) {
     // Older escrow responses embed ledger_entries and may not expose the Phase 7 ledger route yet.
-    if (error instanceof ApiError && error.status === 404) return { job, agreement, escrow, ledger: escrow.ledger_entries, events }
+    if (error instanceof ApiError && error.status === 404) return { job, agreement, escrow, ledger: escrow.ledger_entries, events, disputes }
     throw error
   }
 }
@@ -147,7 +158,8 @@ function EscrowDetails({ state, funding, fundingError, successMessage, onFund }:
     {fundingError && <div className="rounded-2xl border border-rose-300/25 bg-rose-300/5 p-5" role="alert"><p className="text-sm font-bold text-rose-100">Unable to fund demo escrow</p><p className="mt-2 text-sm leading-6 text-rose-100/80">{fundingError}</p></div>}
     {successMessage && <div className="flex items-start gap-3 rounded-2xl border border-accent/30 bg-accent/10 p-4" role="status"><CheckCircle2 className="mt-0.5 shrink-0 text-accent" size={19} /><p className="text-sm leading-6 text-slate-200">{successMessage}</p></div>}
 
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <DisputeBanner job={state.job} escrow={state.escrow} disputes={state.disputes} />
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
       <div className="space-y-5"><AgreementSummary agreement={state.agreement} job={state.job} /><EscrowStatusCard escrow={state.escrow} jobId={state.job.id} validity={validity} funding={funding} onFund={onFund} /></div>
       <div className="space-y-5"><LedgerHistory entries={state.ledger} escrow={state.escrow} /><AuditEvents events={state.events} /></div>
     </div>
@@ -166,6 +178,14 @@ function EscrowStatusCard({ escrow, jobId, validity, funding, onFund }: { escrow
   const status = escrow.status
   const executionMessage = status === 'funded' || status === 'held' ? 'Escrow is funded. Continue toward execution and submission; settlement is not recorded here.' : `The persisted escrow status is ${escrowStatusLabels[status].toLowerCase()}.`
    return <section className="rounded-3xl border border-line bg-panel p-6 sm:p-8"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-accent">Funding state</p><h3 className="mt-2 text-xl font-bold text-white">Persisted escrow record</h3></div><StatusPill tone={statusTone(status)}>{escrowStatusLabels[status]}</StatusPill></div><dl className="mt-6 grid gap-4 sm:grid-cols-2"><SummaryValue label="Current escrow status" value={escrowStatusLabels[status]} /><SummaryValue label="Funded amount" value={formatMoney(escrow.funded_amount, escrow.currency)} /><SummaryValue label="Verification state" value="Escrow and ledger records loaded" /><SummaryValue label="Funded at" value={escrow.funded_at ? formatDate(escrow.funded_at) : 'Not recorded'} /></dl><p className="mt-5 text-sm leading-6 text-slate-400">{executionMessage}</p><div className="mt-4 flex flex-wrap gap-3"><Link to={`/jobs/${jobId}/execution`} className="inline-flex items-center gap-2 rounded-xl border border-electric/30 px-4 py-2.5 text-sm font-bold text-electric hover:bg-electric/10">Open execution workspace</Link><p className="self-center text-xs leading-5 text-slate-500">Settlement stays guarded by the existing escrow service; verification never releases funds directly.</p></div></section>
+}
+
+function DisputeBanner({ job, escrow, disputes }: { job: JobDetailDto; escrow: EscrowDto | null; disputes: DisputeDto[] }) {
+  const active = disputes.find((dispute) => dispute.status === 'open' || dispute.status === 'under_review')
+  if (active) return <section className="rounded-2xl border border-amber-300/30 bg-amber-300/5 p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-200">Settlement blocked</p><h3 className="mt-2 text-lg font-bold text-white">Dispute #{active.id} is protecting this escrow</h3><p className="mt-2 text-sm leading-6 text-amber-100/80">Normal release and refund requests remain blocked until the dispute reaches a backend-authorized terminal outcome.</p></div><ShieldCheck className="text-amber-200" size={24} /></div><Link to={`/disputes/${active.id}`} className="mt-4 inline-flex rounded-xl border border-amber-200/30 px-4 py-2.5 text-sm font-bold text-amber-100 hover:bg-amber-200/10">Review dispute</Link></section>
+  if (disputes.length > 0) return <section className="rounded-2xl border border-line bg-panel p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-accent">Dispute history</p><p className="mt-2 text-sm text-slate-400">This job has {disputes.length} terminal dispute record{disputes.length === 1 ? '' : 's'}.</p></div><Link to={`/disputes/${disputes[0].id}`} className="text-sm font-semibold text-electric hover:text-white">View resolution</Link></div></section>
+  if (escrow && ['funded', 'held'].includes(escrow.status) && ['assigned', 'in_progress', 'submitted', 'under_review', 'completed'].includes(job.status)) return <section className="rounded-2xl border border-line bg-panel/70 p-5"><p className="text-sm leading-6 text-slate-400">If the deliverable or agreement needs formal review, you can open a dispute from this funded escrow.</p><Link to={`/jobs/${job.id}/disputes/new`} className="mt-4 inline-flex rounded-xl border border-amber-300/30 px-4 py-2.5 text-sm font-bold text-amber-200 hover:bg-amber-300/10">Open a dispute</Link></section>
+  return null
 }
 
 function LedgerHistory({ entries, escrow }: { entries: LedgerEntryDto[]; escrow: EscrowDto | null }) {

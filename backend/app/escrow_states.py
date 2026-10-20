@@ -31,7 +31,9 @@ ESCROW_STATE_TRANSITIONS: Final[dict[str, frozenset[str]]] = {
     "held": frozenset({"released", "refunded", "disputed"}),
     "released": frozenset(),
     "refunded": frozenset(),
-    "disputed": frozenset({"released", "refunded"}),
+    # A rejected dispute can restore the protected escrow to its prior funded
+    # state. Financial transitions still require an explicit resolution guard.
+    "disputed": frozenset({"funded", "held", "released", "refunded"}),
 }
 
 
@@ -64,7 +66,11 @@ def can_transition(
 ) -> bool:
     if target not in ESCROW_STATE_TRANSITIONS.get(current, frozenset()):
         return False
-    return current != "disputed" or has_valid_resolution
+    if current != "disputed":
+        return True
+    if target in {"funded", "held"}:
+        return True
+    return has_valid_resolution
 
 
 def validate_transition(

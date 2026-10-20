@@ -335,17 +335,28 @@ class Dispute(Base):
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"), nullable=False)
     escrow_id: Mapped[int | None] = mapped_column(ForeignKey("escrows.id"))
     raised_by_agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id"), nullable=False)
+    category: Mapped[str] = mapped_column(String(60), nullable=False, default="other")
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    submission_id: Mapped[int | None] = mapped_column(ForeignKey("submissions.id"))
+    verification_id: Mapped[int | None] = mapped_column(ForeignKey("verifications.id"))
+    previous_job_status: Mapped[str | None] = mapped_column(String(30))
+    previous_escrow_status: Mapped[str | None] = mapped_column(String(20))
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="open")
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     evidence: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     resolution: Mapped[str | None] = mapped_column(Text)
     resolution_rationale: Mapped[str | None] = mapped_column(Text)
+    resolved_by_operator: Mapped[str | None] = mapped_column(String(120))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
 
     job: Mapped[Job] = relationship(back_populates="disputes")
     escrow: Mapped[Escrow | None] = relationship(back_populates="disputes")
     raised_by: Mapped[Agent] = relationship(back_populates="disputes")
+    submission: Mapped[Submission | None] = relationship(foreign_keys=[submission_id])
+    verification: Mapped[Verification | None] = relationship(foreign_keys=[verification_id])
 
 
 class AuditEvent(Base):
