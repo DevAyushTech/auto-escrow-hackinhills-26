@@ -80,6 +80,59 @@ export type JobListResponseDto = {
   total: number
 }
 
+export type MatchingScoringFormulaDto = {
+  skills: number
+  category: number
+  availability_deadline: number
+  budget: number
+}
+
+export type MatchingMetadataDto = {
+  run_id: string
+  scoring_version: string
+  scoring_formula: MatchingScoringFormulaDto
+}
+
+export type MatchingCompatibilityDto = {
+  skills: number
+  category: number
+  availability_deadline: number
+  budget: number
+}
+
+export type MatchingCandidateDto = {
+  agent_id: number
+  agent_name: string
+  agent_external_id: string | null
+  score: number
+  matched_skills: string[]
+  missing_skills: string[]
+  compatibility: MatchingCompatibilityDto
+  explanation: string
+  warnings: string[]
+}
+
+export type ExcludedAgentDto = {
+  agent_id: number
+  agent_name: string
+  agent_external_id: string | null
+  reasons: string[]
+}
+
+export type MatchingResponseDto = {
+  job_id: number
+  metadata: MatchingMetadataDto
+  candidates: MatchingCandidateDto[]
+  excluded_agents: ExcludedAgentDto[]
+}
+
+export type AgentSelectionResponseDto = {
+  job_id: number
+  selected_agent_id: number
+  status: string
+  message: string | null
+}
+
 export const supportedCurrencies = ['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD'] as const
 export type SupportedCurrency = typeof supportedCurrencies[number]
 
@@ -273,6 +326,19 @@ function requiredInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value)
 }
 
+function requiredNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+function numericValue(value: unknown): number | undefined {
+  if (requiredNumber(value)) return value
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : undefined
+  }
+  return undefined
+}
+
 function requiredNullableInteger(value: unknown): value is number | null {
   return value === null || requiredInteger(value)
 }
@@ -434,6 +500,147 @@ function parseJobEvents(payload: unknown): JobEventDto[] {
   return events as JobEventDto[]
 }
 
+const defaultMatchingFormula: MatchingScoringFormulaDto = {
+  skills: 50,
+  category: 20,
+  availability_deadline: 20,
+  budget: 10,
+}
+
+function optionalString(value: unknown): string | null | undefined {
+  return value === null ? null : typeof value === 'string' ? value : undefined
+}
+
+function matchingNumber(record: RecordValue, names: string[]): number | undefined {
+  for (const name of names) {
+    const parsed = numericValue(record[name])
+    if (parsed !== undefined) return parsed
+  }
+  return undefined
+}
+
+function parseMatchingFormula(value: unknown): MatchingScoringFormulaDto | undefined {
+  if (value === undefined) return defaultMatchingFormula
+  if (!isRecord(value)) return undefined
+  const availability = matchingNumber(value, ['availability', 'availability_weight', 'availability_score'])
+  const deadline = matchingNumber(value, ['deadline', 'deadline_weight', 'deadline_score'])
+  const availabilityDeadline = matchingNumber(value, ['availability_deadline', 'availability_and_deadline', 'availability_deadline_weight']) ?? (availability !== undefined && deadline !== undefined ? availability + deadline : availability)
+  const formula = {
+    skills: matchingNumber(value, ['skills', 'skill_match', 'skills_weight', 'skill_match_weight']),
+    category: matchingNumber(value, ['category', 'category_match', 'category_weight', 'category_match_weight']),
+    availability_deadline: availabilityDeadline,
+    budget: matchingNumber(value, ['budget', 'budget_weight', 'budget_match', 'budget_match_weight']),
+  }
+  return formula.skills !== undefined && formula.category !== undefined && formula.availability_deadline !== undefined && formula.budget !== undefined
+    ? formula as MatchingScoringFormulaDto
+    : undefined
+}
+
+function matchingAgentReference(value: unknown, fallbackId?: unknown, fallbackName?: unknown): { id: number; name: string; external_id: string | null } | undefined {
+  if (isRecord(value) && requiredInteger(value.id) && requiredString(value.name)) {
+    return { id: value.id, name: value.name, external_id: optionalString(value.external_id) ?? null }
+  }
+  if (requiredInteger(fallbackId) && requiredString(fallbackName)) {
+    return { id: fallbackId, name: fallbackName, external_id: null }
+  }
+  return undefined
+}
+
+function parseMatchingCompatibility(value: unknown): MatchingCompatibilityDto | undefined {
+  if (!isRecord(value)) return undefined
+  const component = (names: string[]): number | undefined => {
+    const direct = matchingNumber(value, names)
+    if (direct !== undefined) return direct
+    for (const name of names) {
+      const nested = value[name]
+      if (isRecord(nested)) {
+        const contribution = matchingNumber(nested, ['contribution', 'weighted_contribution'])
+        if (contribution !== undefined) return contribution
+      }
+    }
+    return undefined
+  }
+  const availability = component(['availability', 'availability_score'])
+  const deadline = component(['deadline', 'deadline_score'])
+  const availabilityDeadline = component(['availability_deadline', 'availability_and_deadline', 'availability_deadline_score']) ?? (availability !== undefined && deadline !== undefined ? availability + deadline : availability)
+  const compatibility = {
+    skills: component(['skills', 'skill_match', 'skills_score', 'skill_match_score', 'skill_score']),
+    category: component(['category', 'category_match', 'category_score', 'category_match_score']),
+    availability_deadline: availabilityDeadline,
+    budget: component(['budget', 'budget_score', 'budget_match', 'budget_match_score']),
+  }
+  return compatibility.skills !== undefined && compatibility.category !== undefined && compatibility.availability_deadline !== undefined && compatibility.budget !== undefined
+    ? compatibility as MatchingCompatibilityDto
+    : undefined
+}
+
+function parseMatchingCandidate(value: unknown): MatchingCandidateDto | undefined {
+  if (!isRecord(value)) return undefined
+  const agent = matchingAgentReference(value.agent, value.agent_id ?? value.id, value.agent_name ?? value.name)
+  const compatibility = parseMatchingCompatibility(value.compatibility ?? value.breakdown ?? value.score_breakdown ?? value.compatibility_breakdown)
+  const matchedSkills = value.matched_skills ?? value.skills_matched
+  const missingSkills = value.missing_skills ?? value.skills_missing
+  const warnings = value.warnings ?? []
+  const score = numericValue(value.score ?? value.total_score)
+  const explanation = value.explanation ?? value.reason
+  if (!agent || !requiredNumber(score) || !requiredStringArray(matchedSkills) || !requiredStringArray(missingSkills) || !compatibility || !requiredString(explanation) || !requiredStringArray(warnings)) return undefined
+  return {
+    agent_id: agent.id,
+    agent_name: agent.name,
+    agent_external_id: agent.external_id,
+    score,
+    matched_skills: matchedSkills,
+    missing_skills: missingSkills,
+    compatibility,
+    explanation,
+    warnings,
+  }
+}
+
+function parseExcludedAgent(value: unknown): ExcludedAgentDto | undefined {
+  if (!isRecord(value)) return undefined
+  const agent = matchingAgentReference(value.agent, value.agent_id ?? value.id, value.agent_name ?? value.name)
+  const reason = value.reason ?? value.exclusion_reason
+  const reasons = value.reasons ?? value.exclusion_reasons ?? (reason === undefined ? undefined : [reason])
+  if (!agent || !requiredStringArray(reasons)) return undefined
+  return { agent_id: agent.id, agent_name: agent.name, agent_external_id: agent.external_id, reasons }
+}
+
+function parseMatching(payload: unknown): MatchingResponseDto {
+  const root = isRecord(payload) && isRecord(payload.data) ? payload.data : payload
+  if (!isRecord(root)) throw contractError('matching')
+  const metadataSource = isRecord(root.metadata) ? root.metadata : isRecord(root.matching_metadata) ? root.matching_metadata : root
+  const runId = root.run_id ?? metadataSource.run_id
+  const scoringVersion = root.scoring_version ?? metadataSource.scoring_version
+  const formulaValue = root.scoring_formula ?? root.scoring_weights ?? root.weights ?? metadataSource.scoring_formula ?? metadataSource.scoring_weights ?? metadataSource.weights ?? metadataSource.formula
+  const formula = parseMatchingFormula(formulaValue)
+  const candidatesValue = root.candidates ?? root.eligible_candidates
+  const excludedValue = root.excluded_agents ?? root.excluded
+  const jobId = root.job_id ?? metadataSource.job_id ?? (isRecord(root.job) ? root.job.id : undefined)
+  if (!requiredInteger(jobId) || !requiredString(runId) || !requiredString(scoringVersion) || !formula || !Array.isArray(candidatesValue) || !Array.isArray(excludedValue)) throw contractError('matching')
+  const candidates = candidatesValue.map(parseMatchingCandidate)
+  const excludedAgents = excludedValue.map(parseExcludedAgent)
+  if (candidates.some((item): item is undefined => item === undefined) || excludedAgents.some((item): item is undefined => item === undefined)) throw contractError('matching')
+  return {
+    job_id: jobId,
+    metadata: { run_id: runId, scoring_version: scoringVersion, scoring_formula: formula },
+    candidates: candidates as MatchingCandidateDto[],
+    excluded_agents: excludedAgents as ExcludedAgentDto[],
+  }
+}
+
+function parseAgentSelection(payload: unknown): AgentSelectionResponseDto {
+  const rootValue = isRecord(payload) && isRecord(payload.data) ? payload.data : payload
+  const root = isRecord(rootValue) && isRecord(rootValue.job) ? { ...rootValue, ...rootValue.job } : rootValue
+  if (!isRecord(root)) throw contractError('agent selection')
+  const jobId = root.job_id ?? root.id
+  const selectedAgentId = root.selected_agent_id ?? root.agent_id ?? (isRecord(root.selected_agent) ? root.selected_agent.id : undefined)
+  const status = root.status ?? 'selected'
+  const message = root.message === undefined ? null : root.message
+  if (!requiredInteger(jobId) || !requiredInteger(selectedAgentId) || !requiredString(status) || (message !== null && !requiredString(message))) throw contractError('agent selection')
+  return { job_id: jobId, selected_agent_id: selectedAgentId, status, message }
+}
+
 function jobListSearchParams(query: JobListQuery): string {
   const params = new URLSearchParams()
   if (query.status) params.set('status', query.status)
@@ -466,6 +673,9 @@ export const api = {
   /** Compatibility alias for existing callers; new code should use listJobs. */
   jobs: (query?: JobListQuery) => api.listJobs(query),
   job: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}`).then(parseJobDetail),
+  runMatching: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/matches`, { method: 'POST' }).then(parseMatching),
+  latestMatching: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/matches`).then(parseMatching),
+  selectMatchingAgent: (jobId: number, agentId: number, runId?: string) => request<unknown>(`/api/v1/jobs/${jobId}/matches/${agentId}/select`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(runId ? { run_id: runId } : {}) }).then(parseAgentSelection),
   jobAgreement: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/agreement`).then((payload) => payload === undefined ? null : parseAgreement(payload)),
   jobEscrow: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/escrow`).then((payload) => payload === undefined ? null : parseEscrow(payload)),
   jobEvents: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/events`).then(parseJobEvents),

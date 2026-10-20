@@ -23,6 +23,7 @@ JOB_STATES: Final[tuple[str, ...]] = (
 )
 
 INITIAL_JOB_STATUS: Final[str] = "open"
+MATCHING_JOB_STATUS: Final[str] = "open"
 
 # The mapping is intentionally immutable at the edge of the module so future
 # workflow services can share one authoritative transition policy.
@@ -54,12 +55,20 @@ def can_transition(current: str, target: str) -> bool:
     return target in JOB_STATE_TRANSITIONS.get(current, frozenset())
 
 
+def is_open_for_matching(status: str) -> bool:
+    """Return whether a job may receive a new agent selection."""
+
+    return status == MATCHING_JOB_STATUS
+
+
 __all__ = [
     "ALLOWED_JOB_STATES",
     "INITIAL_JOB_STATUS",
     "JOB_STATE_TRANSITIONS",
     "JOB_STATES",
     "JOB_TRANSITIONS",
+    "MATCHING_JOB_STATUS",
     "can_transition",
+    "is_open_for_matching",
     "is_job_state",
 ]

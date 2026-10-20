@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -82,6 +83,7 @@ class Agent(Base):
     )
     disputes: Mapped[list["Dispute"]] = relationship(back_populates="raised_by")
     audit_events: Mapped[list["AuditEvent"]] = relationship(back_populates="actor")
+    match_results: Mapped[list["MatchResult"]] = relationship(back_populates="agent")
 
 
 class Job(Base):
@@ -106,6 +108,9 @@ class Job(Base):
     requester_agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id"))
     executor_agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id"))
     selected_agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id"))
+    selected_match_run_id: Mapped[str | None] = mapped_column(String(80))
+    selected_matching_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 2, asdecimal=True))
+    selected_scoring_version: Mapped[str | None] = mapped_column(String(40))
     title: Mapped[str] = mapped_column(String(240), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     budget: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
@@ -132,6 +137,7 @@ class Job(Base):
     submissions: Mapped[list["Submission"]] = relationship(back_populates="job", cascade="all, delete-orphan")
     disputes: Mapped[list["Dispute"]] = relationship(back_populates="job", cascade="all, delete-orphan")
     audit_events: Mapped[list["AuditEvent"]] = relationship(back_populates="job", cascade="all, delete-orphan")
+    match_results: Mapped[list["MatchResult"]] = relationship(back_populates="job", cascade="all, delete-orphan")
 
 
 class Agreement(Base):
@@ -320,6 +326,36 @@ class AuditEvent(Base):
     actor: Mapped[Agent | None] = relationship(back_populates="audit_events")
 
 
+class MatchResult(Base):
+    """One agent's explainable result from one matching run."""
+
+    __tablename__ = "match_results"
+    __table_args__ = (
+        CheckConstraint("score >= 0 AND score <= 100", name="ck_match_results_score_range"),
+        UniqueConstraint("run_id", "agent_id", name="uq_match_results_run_agent"),
+        Index("ix_match_results_job_run", "job_id", "run_id"),
+        Index("ix_match_results_job_computed", "job_id", "computed_at"),
+        Index("ix_match_results_agent", "agent_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"), nullable=False)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id"), nullable=False)
+    run_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    scoring_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    score: Mapped[Decimal] = mapped_column(Numeric(5, 2, asdecimal=True), nullable=False)
+    matched_skills: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    missing_skills: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    breakdown: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    explanation: Mapped[str] = mapped_column(Text, nullable=False)
+    warnings: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+    job: Mapped[Job] = relationship(back_populates="match_results")
+    agent: Mapped[Agent] = relationship(back_populates="match_results")
+
+
 __all__ = [
     "Agent",
     "Agreement",
@@ -329,6 +365,7 @@ __all__ = [
     "Escrow",
     "Job",
     "LedgerEntry",
+    "MatchResult",
     "Submission",
     "Verification",
 ]

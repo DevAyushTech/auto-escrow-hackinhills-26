@@ -54,6 +54,7 @@ def test_database_initialization_has_all_domain_tables(session_factory) -> None:
         "verifications",
         "disputes",
         "audit_events",
+        "match_results",
     } <= table_names
 
 

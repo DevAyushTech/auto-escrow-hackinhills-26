@@ -3,7 +3,7 @@
 from decimal import Decimal
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -13,11 +13,26 @@ from app.schemas import (
     JobCreate,
     JobEventResponse,
     JobListResponse,
-    JobStatus,
     JobSummary,
+    JobStatus,
+    MatchCandidateResponse,
+    MatchRunResponse,
+    MatchSelectionRequest,
 )
 from app.services.audit import list_job_events
 from app.services.jobs import agent_exists, create_job, get_job, list_jobs
+from app.services.matching import (
+    AgentIneligibleError,
+    AgentNotFoundForSelectionError,
+    DifferentAgentAlreadySelectedError,
+    JobNotOpenForMatchingError,
+    MatchRunNotFoundError,
+    SCORING_VERSION,
+    candidate_from_result,
+    compute_and_persist_matches,
+    latest_persisted_run,
+    select_agent_after_revalidation,
+)
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -74,6 +89,99 @@ def get_registered_job(job_id: int, db: Session = Depends(get_db)) -> JobSummary
     job = get_job(db, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
+    return job
+
+
+def _match_run_response(
+    *,
+    job_id: int,
+    run_id: str,
+    scoring_version: str,
+    computed_at,
+    candidates,
+) -> MatchRunResponse:
+    eligible = [candidate for candidate in candidates if candidate.eligible]
+    excluded = [candidate for candidate in candidates if not candidate.eligible]
+    return MatchRunResponse(
+        job_id=job_id,
+        run_id=run_id,
+        scoring_version=scoring_version,
+        computed_at=computed_at,
+        candidates=[MatchCandidateResponse.model_validate(candidate.as_dict()) for candidate in eligible],
+        excluded_agents=[MatchCandidateResponse.model_validate(candidate.as_dict()) for candidate in excluded],
+    )
+
+
+@router.post("/{job_id}/matches", response_model=MatchRunResponse, status_code=201, summary="Compute agent matches")
+def compute_job_matches(job_id: int, db: Session = Depends(get_db)) -> MatchRunResponse:
+    job = get_job(db, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    try:
+        run_id, computed_at, candidates = compute_and_persist_matches(db, job)
+    except JobNotOpenForMatchingError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _match_run_response(
+        job_id=job.id,
+        run_id=run_id,
+        scoring_version=SCORING_VERSION,
+        computed_at=computed_at,
+        candidates=candidates,
+    )
+
+
+@router.get(
+    "/{job_id}/matches",
+    response_model=MatchRunResponse,
+    responses={204: {"description": "No persisted matching run exists for this job"}},
+    summary="Get the latest persisted agent matches",
+)
+def get_latest_job_matches(job_id: int, db: Session = Depends(get_db)) -> MatchRunResponse | Response:
+    if get_job(db, job_id) is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    latest = latest_persisted_run(db, job_id)
+    if latest is None:
+        return Response(status_code=204)
+    run_id, scoring_version, computed_at, rows = latest
+    candidates = [candidate_from_result(row) for row in rows]
+    return _match_run_response(
+        job_id=job_id,
+        run_id=run_id,
+        scoring_version=scoring_version,
+        computed_at=computed_at,
+        candidates=candidates,
+    )
+
+
+@router.post("/{job_id}/matches/{agent_id}/select", response_model=JobSummary, summary="Select an eligible agent")
+def select_job_agent(
+    job_id: int,
+    agent_id: int,
+    payload: MatchSelectionRequest | None = Body(default=None),
+    db: Session = Depends(get_db),
+) -> JobSummary:
+    if get_job(db, job_id) is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    try:
+        job, _candidate, _run_id, _created_event = select_agent_after_revalidation(
+            db,
+            job_id=job_id,
+            agent_id=agent_id,
+            requested_run_id=payload.run_id if payload else None,
+        )
+    except JobNotOpenForMatchingError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except DifferentAgentAlreadySelectedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except AgentNotFoundForSelectionError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except MatchRunNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except AgentIneligibleError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "agent is not eligible for this job", "reasons": list(exc.reasons)},
+        ) from exc
     return job
 
 

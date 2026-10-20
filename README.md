@@ -2,7 +2,7 @@
 
 Auto Escrow is a greenfield MVP for coordinating work between people and AI agents. It is designed around a transparent sequence: define a task, compare agents, agree on terms, verify a result, and only then settle a simulated escrow balance.
 
-Phase 4 adds real job management on top of the Phase 3 agent marketplace. The application now supports browsing persisted synthetic agents, creating validated jobs, filtering and sorting the job registry, opening job details with related records and audit events, and carrying an agent selection into the existing-job context without pretending that matching or agreements have happened.
+Phase 5 adds a deterministic, explainable agent matching engine on top of the Phase 4 job workflow. The application now supports browsing persisted synthetic agents, creating validated jobs, computing ranked candidates with explicit eligibility reasons, selecting an eligible agent with server-side revalidation, and recording the selection without pretending that an agreement has been accepted or escrow has been funded.
 
 ## Current scope
 
@@ -13,7 +13,7 @@ Implemented:
 - Environment-backed settings and local-origin CORS.
 - SQLAlchemy 2 models with relationships, foreign keys, indexes, uniqueness constraints, and database checks.
 - SQLite local database with PostgreSQL-compatible URL support.
-- Alembic revisions `0001_phase1_foundation`, `0002_escrow_domain`, `0003_explicit_domain_fields`, `0004_optional_job_requester`, and `0005_audit_event_description`.
+- Alembic revisions `0001_phase1_foundation`, `0002_escrow_domain`, `0003_explicit_domain_fields`, `0004_optional_job_requester`, `0005_audit_event_description`, and `0006_matching_results`.
 - Decimal-safe `NUMERIC(18,2)` money fields and fixed-point API serialization.
 - Validated Pydantic request/response contracts.
 - Versioned FastAPI endpoints for agents, jobs, agreements, escrow lookup, audit activity, and persisted dashboard metrics.
@@ -26,11 +26,11 @@ Implemented:
 - Job registry search, status/category/budget filters, sorting, pagination-ready API client, empty/error/retry states, and job details.
 - Related agreement/escrow/event lookups with honest not-created states and persisted job audit timeline.
 - Dashboard recent jobs and upcoming deadlines loaded from the jobs API.
+- Deterministic Phase 5 matching runs with persisted scoring version, ranked candidates, component breakdowns, exclusions, and audit-backed agent selection.
 - Responsive navigation for Dashboard, Agents, Jobs, Escrow, Disputes, and Settings.
 
 Not yet implemented:
 
-- Explainable matching and ranked candidates.
 - Agreement creation, acceptance, and negotiation operations.
 - Escrow funding, release, refund, and settlement transitions.
 - Work submission and rule-based verification operations.
@@ -169,7 +169,7 @@ npm run dev
 
 The top-right API badge is driven by a real health request. Dashboard metrics and agent/job cards are driven by persisted API responses.
 
-## Phase 2–4 API endpoints
+## Phase 2–5 API endpoints
 
 All domain endpoints use the `/api/v1` prefix.
 
@@ -220,6 +220,14 @@ The Phase 3 marketplace uses both agent endpoints. The frontend also uses the ex
 - `GET /api/v1/jobs/{job_id}`
 
 The Phase 4 job-management UI uses `POST /api/v1/jobs` for persisted job creation. New jobs always start in the centralized `open` state; privileged status and assignment fields are rejected from the create payload.
+
+### Matching
+
+- `POST /api/v1/jobs/{job_id}/matches`
+- `GET /api/v1/jobs/{job_id}/matches`
+- `POST /api/v1/jobs/{job_id}/matches/{agent_id}/select`
+
+Matching uses the documented `phase5-v1` weights and persists each run. See [`docs/MATCHING.md`](docs/MATCHING.md) for the formula, eligibility rules, missing-data handling, response shape, and selection semantics.
 
 When a job exists without an agreement or escrow, the related lookup returns `204 No Content`. Unknown jobs and record IDs return `404`.
 
@@ -286,7 +294,7 @@ npm run build
 
 Backend tests use temporary isolated SQLite databases and cover database initialization, health, agent retrieval, job validation and persistence, metrics, seed repeatability, and missing records. Frontend tests cover persisted metrics, canonical response validation, agent search/filtering, jobs, empty states, and API errors.
 
-## Manual Phase 4 browser walkthrough
+## Manual Phase 5 browser walkthrough
 
 1. Start the backend, apply migrations, and run `python -m app.seed --with-jobs`.
 2. Start the frontend and open <http://localhost:5173/jobs>.
@@ -296,7 +304,10 @@ Backend tests use temporary isolated SQLite databases and cover database initial
 6. Open **Jobs** and use search, status/category, budget, and deadline sorting controls.
 7. Open a job detail page and inspect the audit event, agreement, and escrow sections. Missing agreement/escrow records are shown as not created rather than fabricated.
 8. Use **Find Matching Agents** to see the honest Phase 5 placeholder; no match is created yet.
-9. Open **Agents**, select an agent for a job context, and confirm the URL carries the agent ID without creating an assignment.
+9. From a job detail page, click **Find Matching Agents**.
+10. Review ranked candidates, score breakdowns, matched/missing skills, warnings, and excluded agents.
+11. Select an eligible candidate and confirm the server persists `selected_agent_id` and records `job.agent_selected`.
+12. Confirm the job remains open and no agreement or escrow was created automatically.
 
 If the API is unavailable, the marketplace shows an error and retry action rather than showing cached or fabricated agent data.
 

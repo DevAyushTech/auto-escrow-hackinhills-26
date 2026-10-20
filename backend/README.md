@@ -1,6 +1,6 @@
 # Auto Escrow backend
 
-FastAPI + SQLAlchemy 2 + Alembic backend for the Auto Escrow Phase 2/3 data/API foundation and Phase 4 job management flow. SQLite is the default local database; PostgreSQL is supported through the configured SQLAlchemy URL.
+FastAPI + SQLAlchemy 2 + Alembic backend for the Auto Escrow Phase 2/3 data/API foundation, Phase 4 job management flow, and Phase 5 deterministic agent matching. SQLite is the default local database; PostgreSQL is supported through the configured SQLAlchemy URL.
 
 ## Setup
 
@@ -36,7 +36,8 @@ The current chain is:
   -> 0002_escrow_domain
   -> 0003_explicit_domain_fields
   -> 0004_optional_job_requester
-  -> 0005_audit_event_description (head)
+  -> 0005_audit_event_description
+  -> 0006_matching_results (head)
 ```
 
 Run:
@@ -91,6 +92,9 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 - `POST /api/v1/jobs`
 - `GET /api/v1/jobs`
 - `GET /api/v1/jobs/{job_id}`
+- `POST /api/v1/jobs/{job_id}/matches`
+- `GET /api/v1/jobs/{job_id}/matches`
+- `POST /api/v1/jobs/{job_id}/matches/{agent_id}/select`
 - `GET /api/v1/jobs/{job_id}/agreement`
 - `GET /api/v1/jobs/{job_id}/escrow`
 - `GET /api/v1/jobs/{job_id}/events`
@@ -105,7 +109,36 @@ Decimal validation, and job creation always starts in the centralized `open`
 state. The create request trims and normalizes text and required skills and
 rejects client-supplied workflow or assignment state fields.
 
-Funding, settlement, matching, submission, verification, and dispute mutation endpoints are reserved for later phases.
+## Phase 5 matching
+
+`POST /api/v1/jobs/{job_id}/matches` evaluates every registered agent and
+persists one `match_results` row per agent under a generated `run_id`.
+`GET /api/v1/jobs/{job_id}/matches` returns the latest persisted run; it returns
+`204` when the job exists but has no run yet. The response separates ranked
+eligible `candidates` from `excluded_agents`, and every candidate includes its
+score, matched/missing skills, component breakdown, explanation, warnings, and
+eligibility reasons.
+
+The scoring policy is versioned as `phase5-v1` in
+`app/services/matching.py`. Its configurable default weights are skills 50%,
+exact normalized category membership 20%, availability/deadline 20%, and
+budget 10%. Required skills, active status, available status, and known
+deadline incompatibility are eligibility rules rather than soft preferences.
+Skills and categories are trimmed and compared case-insensitively. An agent
+without a known completion estimate remains eligible and receives a deadline
+warning with a neutral 0.5 deadline component. Agent pricing is not present in
+the current data model, so budget is explicitly unknown, contributes neutral
+0.5 / 5 points, and always emits a warning; no price is inferred.
+
+`POST /api/v1/jobs/{job_id}/matches/{agent_id}/select` re-evaluates the agent
+server-side and permits selection only while the job is `open`. It sets only
+`selected_agent_id` and matching metadata, records one `job.agent_selected`
+audit event with score/run/version, and leaves the job open. Repeating the same
+selection is idempotent; replacing a different selection and selecting an
+ineligible/missing agent are rejected. The endpoint accepts an optional
+`{"run_id": "..."}` body to associate the selection with a persisted run.
+It does not accept arbitrary state, create agreements, accept agreements, or
+fund escrow.
 
 ## Tests and checks
 
@@ -117,4 +150,4 @@ make migrate-down
 make migrate
 ```
 
-Tests use temporary SQLite databases and cover health, schema initialization, agent retrieval, job validation/persistence, normalized creation, filtering/pagination, metrics, seed idempotency, audit events, and missing records.
+Tests use temporary SQLite databases and cover health, schema initialization, agent retrieval, job validation/persistence, normalized creation, filtering/pagination, metrics, seed idempotency, audit events, missing records, deterministic matching, persisted match runs, eligibility explanations, selection revalidation, idempotency, and selection audit events.

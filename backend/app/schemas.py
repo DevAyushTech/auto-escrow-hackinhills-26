@@ -205,6 +205,9 @@ class JobSummary(APIModel):
     requester_agent_id: int | None = None
     executor_agent_id: int | None = None
     selected_agent_id: int | None = None
+    selected_match_run_id: StrictStr | None = None
+    selected_matching_score: Decimal | None = None
+    selected_scoring_version: StrictStr | None = None
     title: StrictStr
     description: StrictStr
     required_skills: list[StrictStr]
@@ -225,6 +228,39 @@ class JobSummary(APIModel):
 class JobListResponse(APIModel):
     items: list[JobSummary]
     total: int
+
+
+class MatchCandidateResponse(APIModel):
+    agent_id: int
+    agent_name: StrictStr
+    score: Decimal = Field(ge=Decimal("0"), le=Decimal("100"), max_digits=5, decimal_places=2)
+    matched_skills: list[StrictStr]
+    missing_skills: list[StrictStr]
+    breakdown: dict[str, Any]
+    explanation: StrictStr
+    warnings: list[StrictStr]
+    eligible: bool
+    exclusion_reasons: list[StrictStr] = Field(default_factory=list)
+
+
+class MatchRunResponse(APIModel):
+    job_id: int
+    run_id: StrictStr
+    scoring_version: StrictStr
+    computed_at: datetime
+    candidates: list[MatchCandidateResponse]
+    excluded_agents: list[MatchCandidateResponse]
+
+
+class MatchSelectionRequest(APIModel):
+    """Optional persisted match run to use as the selection's audit context."""
+
+    run_id: StrictStr | None = Field(default=None, min_length=1, max_length=80)
+
+
+# Descriptive compatibility alias for callers that refer to the action as an
+# agent selection rather than a match selection.
+AgentSelectionRequest = MatchSelectionRequest
 
 
 class AgreementResponse(APIModel):
