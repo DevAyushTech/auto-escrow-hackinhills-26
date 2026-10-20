@@ -75,6 +75,23 @@ describe('Auto Escrow shell', () => {
     expect(await screen.findByText('Metrics loaded')).toBeInTheDocument()
     expect(await screen.findByText('API connected')).toBeInTheDocument()
   })
+
+  it('supports keyboard-friendly mobile navigation and a real skip target', async () => {
+    const user = userEvent.setup()
+    stubApi((url) => url.endsWith('/api/health') ? jsonResponse(healthResponse) : jsonResponse(metricsResponse))
+
+    render(<App />)
+
+    const toggle = screen.getByRole('button', { name: 'Open navigation' })
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('navigation', { name: 'Mobile navigation' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Skip to main content' })).toHaveAttribute('href', '#main-content')
+
+    await user.keyboard('{Escape}')
+    expect(screen.getByRole('button', { name: 'Open navigation' })).toHaveAttribute('aria-expanded', 'false')
+    expect(document.title).toBe('Dashboard · Auto Escrow')
+  })
 })
 
 describe('DashboardPage', () => {

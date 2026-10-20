@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowUpRight, BriefcaseBusiness, CalendarClock, CircleDollarSign, Gavel, ListChecks, LoaderCircle, Plus, ShieldCheck, Sparkles } from 'lucide-react'
+import { Activity, ArrowUpRight, BriefcaseBusiness, CalendarClock, CircleDollarSign, Gavel, ListChecks, LoaderCircle, Plus, ShieldCheck, Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { StatusPill } from '../components/StatusPill'
 import { ApiError, api, DashboardExecutionDto, DashboardMetricsDto, JobListResponseDto } from '../lib/api'
@@ -43,6 +43,18 @@ function isEmptyMetrics(metrics: DashboardMetricsDto): boolean {
 
 function errorMessage(error: unknown): string {
   return error instanceof ApiError ? error.message : 'Dashboard metrics could not be loaded.'
+}
+
+type ActivityItem = {
+  id: string
+  occurredAt: string
+  title: string
+  detail: string
+}
+
+function activityDate(value: string): number {
+  const timestamp = new Date(value).getTime()
+  return Number.isNaN(timestamp) ? 0 : timestamp
 }
 
 export function DashboardPage() {
@@ -91,6 +103,17 @@ export function DashboardPage() {
   const empty = metrics ? isEmptyMetrics(metrics) : false
   const recentJobs = useMemo(() => jobsState.status !== 'success' ? [] : [...jobsState.data.items].sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime()).slice(0, 3), [jobsState])
   const upcomingJobs = useMemo(() => jobsState.status !== 'success' ? [] : [...jobsState.data.items].filter((job) => new Date(job.deadline).getTime() > Date.now()).sort((left, right) => new Date(left.deadline).getTime() - new Date(right.deadline).getTime()).slice(0, 3), [jobsState])
+  const activity = useMemo<ActivityItem[]>(() => {
+    const items: ActivityItem[] = []
+    if (jobsState.status === 'success') {
+      items.push(...jobsState.data.items.map((job) => ({ id: `job-${job.id}`, occurredAt: job.created_at, title: 'Job created', detail: `${job.title} · Job #${job.id}` })))
+    }
+    if (executionState.status === 'success') {
+      items.push(...executionState.data.recent_submissions.map((submission) => ({ id: `submission-${submission.id}`, occurredAt: submission.submitted_at, title: 'Submission recorded', detail: `Job #${submission.job_id} · version ${submission.version}` })))
+      items.push(...executionState.data.recent_verifications.map((verification) => ({ id: `verification-${verification.id}`, occurredAt: verification.evaluated_at ?? verification.verified_at ?? '', title: 'Verification recorded', detail: `Job #${verification.job_id} · ${verification.overall_result.replaceAll('_', ' ')}` })))
+    }
+    return items.sort((left, right) => activityDate(right.occurredAt) - activityDate(left.occurredAt)).slice(0, 6)
+  }, [executionState, jobsState])
 
   return (
     <div className="space-y-8">
@@ -100,10 +123,11 @@ export function DashboardPage() {
           <div className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-accent"><Sparkles size={14} /> Connected workspace</div>
           <h2 className="max-w-2xl text-3xl font-bold tracking-tight text-white sm:text-4xl">Coordinate AI work with clarity, before money moves.</h2>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-400 sm:text-base">Review persisted dashboard metrics and job activity from the connected API. Create work here, then inspect its deadline, selected agent, and audit trail before later workflow phases.</p>
-          <div className="mt-7 flex flex-wrap gap-3">
-            <Link to="/agents" className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-bold text-ink transition hover:bg-[#5ee0d9]"><ListChecks size={17} /> Browse agents</Link>
-            <Link to="/jobs/new" className="inline-flex items-center gap-2 rounded-xl border border-line bg-white/[0.03] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-white/[0.08]"><Plus size={17} /> Create a job</Link>
-          </div>
+           <div className="mt-7 flex flex-wrap gap-3">
+             <Link to="/agents" className="action-primary"><ListChecks size={17} /> Browse agents</Link>
+             <Link to="/jobs/new" className="action-secondary"><Plus size={17} /> Create a job</Link>
+             <Link to="/jobs" className="inline-flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-300 transition hover:bg-white/[0.05] hover:text-white"><ArrowUpRight size={16} /> View jobs</Link>
+           </div>
         </div>
       </section>
 
@@ -127,12 +151,14 @@ export function DashboardPage() {
         </>}
       </section>
 
-      <section className="grid gap-5 lg:grid-cols-[1.3fr_1fr]">
-        <DashboardJobs jobsState={jobsState} recentJobs={recentJobs} upcomingJobs={upcomingJobs} retry={() => setJobsReloadKey((value) => value + 1)} />
-        <div className="rounded-2xl border border-line bg-panel p-5 sm:p-6"><div className="mb-6 flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-600">Trust layer</p><h2 className="mt-1 text-lg font-bold text-white">How the MVP works</h2></div><ShieldCheck className="text-accent" size={22} /></div><ol className="space-y-4 text-sm"><li className="flex gap-3"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-accent/10 text-xs font-bold text-accent">1</span><span className="text-slate-400">Define the task and acceptance criteria.</span></li><li className="flex gap-3"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-electric/10 text-xs font-bold text-electric">2</span><span className="text-slate-400">Compare explainable agent matches.</span></li><li className="flex gap-3"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-amber-300/10 text-xs font-bold text-amber-200">3</span><span className="text-slate-400">Verify the result before simulated settlement.</span></li></ol></div>
-      </section>
+       <section className="grid gap-5 lg:grid-cols-[1.3fr_1fr]">
+         <DashboardJobs jobsState={jobsState} recentJobs={recentJobs} upcomingJobs={upcomingJobs} retry={() => setJobsReloadKey((value) => value + 1)} />
+         <div className="rounded-2xl border border-line bg-panel p-5 sm:p-6"><div className="mb-6 flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-600">Trust layer</p><h2 className="mt-1 text-lg font-bold text-white">How the MVP works</h2></div><ShieldCheck className="text-accent" size={22} /></div><ol className="space-y-4 text-sm"><li className="flex gap-3"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-accent/10 text-xs font-bold text-accent">1</span><span className="text-slate-400">Define the task and acceptance criteria.</span></li><li className="flex gap-3"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-electric/10 text-xs font-bold text-electric">2</span><span className="text-slate-400">Compare explainable agent matches.</span></li><li className="flex gap-3"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-amber-300/10 text-xs font-bold text-amber-200">3</span><span className="text-slate-400">Verify the result before simulated settlement.</span></li></ol></div>
+       </section>
 
-      <ExecutionDashboard state={executionState} retry={() => setJobsReloadKey((value) => value + 1)} />
+       <ActivityTimeline items={activity} loading={jobsState.status === 'loading' || executionState.status === 'loading'} />
+
+       <ExecutionDashboard state={executionState} retry={() => setJobsReloadKey((value) => value + 1)} />
     </div>
   )
 }
@@ -143,6 +169,10 @@ function MetricSkeleton() {
 
 function DashboardJobs({ jobsState, recentJobs, upcomingJobs, retry }: { jobsState: JobsState; recentJobs: JobListResponseDto['items']; upcomingJobs: JobListResponseDto['items']; retry: () => void }) {
   return <div className="rounded-2xl border border-line bg-panel p-5 sm:p-6"><div className="mb-6 flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-600">Recent work</p><h2 className="mt-1 text-lg font-bold text-white">Recent jobs</h2></div><BriefcaseBusiness className="text-slate-600" size={22} /></div>{jobsState.status === 'loading' && <div className="space-y-3" aria-label="Loading dashboard jobs"><div className="h-20 animate-pulse rounded-xl bg-white/[0.03]" /><div className="h-20 animate-pulse rounded-xl bg-white/[0.03]" /></div>}{jobsState.status === 'error' && <div className="rounded-xl border border-rose-300/25 bg-rose-300/5 p-4" role="status"><p className="text-sm font-semibold text-rose-100">Unable to load dashboard jobs</p><p className="mt-2 text-sm leading-6 text-rose-100/70">{jobsState.message}</p><button type="button" onClick={retry} className="mt-4 rounded-lg border border-rose-200/30 px-3 py-2 text-xs font-semibold text-rose-100 hover:bg-rose-200/10">Retry jobs request</button></div>}{jobsState.status === 'success' && jobsState.data.items.length === 0 && <div className="rounded-xl border border-dashed border-line bg-ink/30 p-5 text-center"><p className="text-sm font-semibold text-white">No recent jobs</p><p className="mt-2 text-sm leading-6 text-slate-500">Persisted job records will appear here after the first job is created.</p><Link to="/jobs/new" className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-electric hover:text-white"><Plus size={15} /> Create a job</Link></div>}{jobsState.status === 'success' && jobsState.data.items.length > 0 && <div className="space-y-3">{recentJobs.map((job) => <Link key={job.id} to={`/jobs/${job.id}`} className="block rounded-xl border border-line bg-ink/30 p-4 transition hover:border-electric/40"><div className="flex items-start justify-between gap-3"><p className="min-w-0 truncate text-sm font-semibold text-white">{job.title}</p><span className="shrink-0 text-xs text-slate-500">{job.status.replaceAll('_', ' ')}</span></div><div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500"><span>Created {formatShortDate(job.created_at)}</span><span>{job.selected_agent_id === null ? 'No agent selected' : `Agent #${job.selected_agent_id}`}</span></div></Link>)}</div>}{jobsState.status === 'success' && <div className="mt-6 border-t border-line pt-5"><div className="flex items-center gap-2"><CalendarClock size={16} className="text-electric" /><h3 className="text-sm font-semibold text-white">Upcoming deadlines</h3></div>{upcomingJobs.length === 0 ? <p className="mt-3 text-sm text-slate-500">No upcoming deadlines in the persisted records.</p> : <div className="mt-3 space-y-2">{upcomingJobs.map((job) => <Link key={job.id} to={`/jobs/${job.id}`} className="flex items-center justify-between gap-3 rounded-lg px-2 py-2 text-sm hover:bg-white/[0.04]"><span className="min-w-0 truncate text-slate-300">{job.title}</span><span className="shrink-0 text-xs text-electric">{formatShortDate(job.deadline)}</span></Link>)}</div>}</div>}<Link to="/jobs" className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-electric hover:text-white">Open job workspace <ArrowUpRight size={15} /></Link></div>
+}
+
+function ActivityTimeline({ items, loading }: { items: ActivityItem[]; loading: boolean }) {
+  return <section className="surface-panel p-5 sm:p-6" aria-labelledby="activity-heading"><div className="mb-5 flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-600">Audit view</p><h2 id="activity-heading" className="mt-1 text-lg font-bold text-white">Recent activity</h2><p className="mt-2 text-sm text-slate-500">Persisted jobs, submissions, and verification records only.</p></div><Activity className="text-electric" size={22} aria-hidden="true" /></div>{loading && <div className="space-y-3" aria-label="Loading recent activity"><div className="h-12 animate-pulse rounded-xl bg-white/[0.03]" /><div className="h-12 animate-pulse rounded-xl bg-white/[0.03]" /></div>}{!loading && items.length === 0 && <div className="rounded-xl border border-dashed border-line bg-ink/30 p-5"><p className="text-sm font-semibold text-white">No activity to show yet</p><p className="mt-2 text-sm leading-6 text-slate-500">The connected API has not returned persisted job, submission, or verification records.</p></div>}{!loading && items.length > 0 && <ol className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{items.map((item) => <li key={item.id} className="relative rounded-xl border border-line bg-ink/30 p-4"><span className="absolute left-0 top-4 h-8 w-0.5 rounded-r bg-electric" aria-hidden="true" /><p className="pl-3 text-sm font-semibold text-white">{item.title}</p><p className="mt-1 pl-3 text-sm text-slate-400">{item.detail}</p><p className="mt-3 pl-3 text-xs text-slate-600">{formatActivityDate(item.occurredAt)}</p></li>)}</ol>}</section>
 }
 
 function ExecutionDashboard({ state, retry }: { state: ExecutionState; retry: () => void }) {
@@ -167,4 +197,9 @@ function RecentVerifications({ verifications }: { verifications: DashboardExecut
 function formatShortDate(value: string): string {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+function formatActivityDate(value: string): string {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? 'Recorded time unavailable' : date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }

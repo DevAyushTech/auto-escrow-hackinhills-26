@@ -6,11 +6,46 @@
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #e6edf7;
   background: #0b1220;
+  color-scheme: dark;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; min-height: 100vh; }
-button, a { -webkit-tap-highlight-color: transparent; }
-button:focus-visible, a:focus-visible { outline: 2px solid #35c6c0; outline-offset: 3px; }
+html { min-width: 320px; background: #0b1220; }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: radial-gradient(circle at 82% -10%, rgba(53, 198, 192, 0.08), transparent 30rem), #0b1220; }
+button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid #35c6c0; outline-offset: 3px; }
+button:disabled { cursor: not-allowed; }
+::selection { background: rgba(53, 198, 192, 0.28); color: #fff; }
+
+@layer components {
+  .icon-button {
+    @apply inline-flex h-10 w-10 items-center justify-center rounded-xl border border-transparent text-slate-400 transition hover:border-line hover:bg-white/[0.05] hover:text-white focus-visible:ring-2 focus-visible:ring-accent;
+  }
+
+  .action-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-bold text-ink shadow-lg shadow-accent/10 transition hover:bg-[#5ee0d9] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-ink;
+  }
+
+  .action-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-line bg-white/[0.03] px-4 py-2.5 text-sm font-bold text-white transition hover:border-electric/40 hover:bg-white/[0.08] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-ink;
+  }
+
+  .surface-panel {
+    @apply rounded-2xl border border-line bg-panel shadow-soft;
+  }
+
+  .skip-link {
+    @apply fixed left-4 top-4 z-50 -translate-y-24 rounded-xl bg-accent px-4 py-2.5 text-sm font-bold text-ink shadow-lg transition focus:translate-y-0 focus:outline-none focus:ring-2 focus:ring-white;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
