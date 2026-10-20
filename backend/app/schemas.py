@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Literal
 
@@ -18,10 +18,18 @@ from pydantic import (
 )
 
 SUPPORTED_CURRENCIES = frozenset({"USD", "EUR", "GBP", "JPY", "CAD", "AUD"})
+MAX_JOB_BUDGET = Decimal("1000000.00")
+MAX_JOB_DEADLINE_HORIZON = timedelta(days=365)
+MAX_REQUIRED_SKILLS = 20
+MAX_SKILL_LENGTH = 80
+MAX_ACCEPTANCE_CRITERIA = 20
+MAX_ACCEPTANCE_CRITERION_LENGTH = 1000
+MAX_DESCRIPTION_LENGTH = 20000
+MAX_EXPECTED_OUTPUT_LENGTH = 20000
 
 
 def _currency(value: str) -> str:
-    normalized = value.upper()
+    normalized = value.strip().upper()
     if normalized not in SUPPORTED_CURRENCIES:
         raise ValueError(f"unsupported currency; choose one of {sorted(SUPPORTED_CURRENCIES)}")
     return normalized
@@ -30,9 +38,13 @@ def _currency(value: str) -> str:
 def _future_deadline(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("deadline must be an ISO-8601 datetime with a timezone")
-    if value <= datetime.now(timezone.utc):
+    now = datetime.now(timezone.utc)
+    normalized = value.astimezone(timezone.utc)
+    if normalized <= now:
         raise ValueError("deadline must be in the future")
-    return value
+    if normalized > now + MAX_JOB_DEADLINE_HORIZON:
+        raise ValueError("deadline is beyond the maximum supported horizon of 365 days")
+    return normalized
 
 
 class APIModel(BaseModel):
@@ -83,24 +95,87 @@ class AgentListResponse(APIModel):
 
 
 class JobCreate(APIModel):
-    title: StrictStr = Field(min_length=1, max_length=240)
-    description: StrictStr = Field(min_length=1)
+    title: StrictStr = Field(max_length=240)
+    description: StrictStr = Field(max_length=MAX_DESCRIPTION_LENGTH)
     required_skills: list[StrictStr] = Field(min_length=0)
-    task_category: StrictStr = Field(min_length=1, max_length=120)
-    expected_output: StrictStr = Field(min_length=1)
+    task_category: StrictStr = Field(max_length=120)
+    expected_output: StrictStr = Field(max_length=MAX_EXPECTED_OUTPUT_LENGTH)
     acceptance_criteria: list[StrictStr] = Field(min_length=1)
-    budget: Decimal = Field(gt=Decimal("0"), max_digits=18, decimal_places=2)
+    budget: Decimal = Field(
+        gt=Decimal("0"),
+        le=MAX_JOB_BUDGET,
+        max_digits=18,
+        decimal_places=2,
+    )
     currency: StrictStr
     deadline: datetime
     additional_instructions: StrictStr | None = None
-    selected_agent_id: StrictInt | None = Field(default=None, gt=0)
-    # Optional compatibility associations. Neither is required for creation.
+    # The requester is an association, not a workflow state. Assignment and
+    # status fields are deliberately absent and therefore rejected by the
+    # APIModel extra="forbid" contract.
     requester_agent_id: StrictInt | None = Field(default=None, gt=0)
-    executor_agent_id: StrictInt | None = Field(default=None, gt=0)
     requirements: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("title", "description", "task_category", "expected_output")
+    @classmethod
+    def validate_required_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("value must contain non-whitespace characters")
+        return normalized
+
+    @field_validator("required_skills")
+    @classmethod
+    def normalize_required_skills(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for skill in value:
+            item = skill.strip().lower()
+            if not item:
+                raise ValueError("required_skills cannot contain blank items")
+            if len(item) > MAX_SKILL_LENGTH:
+                raise ValueError(f"each required skill must be at most {MAX_SKILL_LENGTH} characters")
+            if item not in seen:
+                normalized.append(item)
+                seen.add(item)
+        if len(normalized) > MAX_REQUIRED_SKILLS:
+            raise ValueError(f"required_skills cannot contain more than {MAX_REQUIRED_SKILLS} unique items")
+        return normalized
+
+    @field_validator("acceptance_criteria")
+    @classmethod
+    def normalize_acceptance_criteria(cls, value: list[str]) -> list[str]:
+        if len(value) > MAX_ACCEPTANCE_CRITERIA:
+            raise ValueError(f"acceptance_criteria cannot contain more than {MAX_ACCEPTANCE_CRITERIA} items")
+        normalized: list[str] = []
+        for criterion in value:
+            item = criterion.strip()
+            if not item:
+                raise ValueError("acceptance_criteria must contain meaningful nonblank items")
+            if len(item) > MAX_ACCEPTANCE_CRITERION_LENGTH:
+                raise ValueError(
+                    f"each acceptance criterion must be at most {MAX_ACCEPTANCE_CRITERION_LENGTH} characters"
+                )
+            normalized.append(item)
+        return normalized
+
+    @field_validator("budget")
+    @classmethod
+    def validate_budget_precision(cls, value: Decimal) -> Decimal:
+        if value != value.quantize(Decimal("0.01")):
+            raise ValueError("budget must use no more than 2 decimal places")
+        return value
 
     _validate_currency = field_validator("currency")(_currency)
     _validate_deadline = field_validator("deadline")(_future_deadline)
+
+    @field_validator("additional_instructions", mode="before")
+    @classmethod
+    def normalize_additional_instructions(cls, value: Any) -> Any:
+        if value is None or not isinstance(value, str):
+            return value
+        normalized = value.strip()
+        return normalized or None
 
     @field_validator("requirements")
     @classmethod
@@ -110,6 +185,8 @@ class JobCreate(APIModel):
         return value
 
 
+# Keep the response/query contract explicit for OpenAPI while the allowed
+# values and transitions live centrally in app.job_states.
 JobStatus = Literal[
     "open",
     "assigned",

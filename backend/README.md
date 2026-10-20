@@ -1,6 +1,6 @@
 # Auto Escrow backend
 
-FastAPI + SQLAlchemy 2 + Alembic backend for the Auto Escrow Phase 2 data/API foundation. SQLite is the default local database; PostgreSQL is supported through the configured SQLAlchemy URL.
+FastAPI + SQLAlchemy 2 + Alembic backend for the Auto Escrow Phase 2/3 data/API foundation and Phase 4 job management flow. SQLite is the default local database; PostgreSQL is supported through the configured SQLAlchemy URL.
 
 ## Setup
 
@@ -98,6 +98,13 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 - `GET /api/v1/escrows/{escrow_id}`
 - `GET /api/v1/dashboard/metrics`
 
+`GET /api/v1/jobs` accepts optional `status`, `task_category`, `min_budget`,
+`max_budget`, `search`, `skip`, `limit`, and `sort` query parameters. `sort`
+is either `newest` (the default) or `deadline`. Budget values use fixed-point
+Decimal validation, and job creation always starts in the centralized `open`
+state. The create request trims and normalizes text and required skills and
+rejects client-supplied workflow or assignment state fields.
+
 Funding, settlement, matching, submission, verification, and dispute mutation endpoints are reserved for later phases.
 
 ## Tests and checks
@@ -110,4 +117,4 @@ make migrate-down
 make migrate
 ```
 
-Tests use temporary SQLite databases and cover health, schema initialization, agent retrieval, job validation/persistence, metrics, seed idempotency, audit events, and missing records.
+Tests use temporary SQLite databases and cover health, schema initialization, agent retrieval, job validation/persistence, normalized creation, filtering/pagination, metrics, seed idempotency, audit events, and missing records.

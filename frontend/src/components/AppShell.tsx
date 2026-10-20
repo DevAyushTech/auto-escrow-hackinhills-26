@@ -9,6 +9,7 @@ const titles: Record<string, string> = {
   '/': 'Dashboard',
   '/agents': 'Agent marketplace',
   '/jobs': 'Jobs',
+  '/jobs/new': 'Create job',
   '/escrow': 'Escrow ledger',
   '/disputes': 'Disputes',
   '/settings': 'Settings',

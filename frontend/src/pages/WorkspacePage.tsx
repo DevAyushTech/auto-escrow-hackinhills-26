@@ -3,6 +3,7 @@ import { ArrowRight, ArrowUpDown, Bot, BriefcaseBusiness, CalendarClock, CircleD
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { StatusPill } from '../components/StatusPill'
 import { AgentAvailability, AgentListResponseDto, AgentStatus, AgentSummaryDto, ApiError, api, JobListResponseDto, JobStatus } from '../lib/api'
+import { JobsPage } from './JobsPage'
 
 type WorkspaceConfig = {
   eyebrow: string
@@ -93,7 +94,7 @@ function parseId(value: string | null): number | null {
 export function WorkspacePage() {
   const { pathname } = useLocation()
   if (pathname === '/agents') return <AgentsWorkspace />
-  if (pathname === '/jobs') return <JobsWorkspace />
+  if (pathname === '/jobs') return <JobsPage />
 
   const item = content[pathname] ?? content['/settings']
   const Icon = item.icon
@@ -247,7 +248,7 @@ function formatJobBudget(amount: string, currency: string): string {
   return `${numericAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`
 }
 
-function JobsWorkspace() {
+export function JobsWorkspace() {
   const [searchParams] = useSearchParams()
   const selectedAgentId = parseId(searchParams.get('agentId'))
   const [reloadKey, setReloadKey] = useState(0)
