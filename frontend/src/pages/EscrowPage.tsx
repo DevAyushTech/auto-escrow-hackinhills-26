@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react'
 import { ArrowLeft, CheckCircle2, CircleDollarSign, Clock3, FileText, LoaderCircle, ShieldCheck } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 import { StatusPill } from '../components/StatusPill'
-import { ApiError, api, type AgreementDto, type DisputeDto, type EscrowDto, type EscrowStatus, type JobDetailDto, type JobEventDto, type JobStatus, type LedgerEntryDto } from '../lib/api'
+import { ApiError, api, type AgreementDto, type DisputeDto, type EscrowDto, type EscrowStatus, type ExecutionDto, type JobDetailDto, type JobEventDto, type JobStatus, type LedgerEntryDto } from '../lib/api'
 
 type PageState =
   | { status: 'loading' }
-  | { status: 'success'; job: JobDetailDto; agreement: AgreementDto | null; escrow: EscrowDto | null; ledger: LedgerEntryDto[]; events: JobEventDto[]; disputes: DisputeDto[] }
+  | { status: 'success'; job: JobDetailDto; agreement: AgreementDto | null; escrow: EscrowDto | null; execution: ExecutionDto | null; executionError: string | null; ledger: LedgerEntryDto[]; events: JobEventDto[]; disputes: DisputeDto[] }
   | { status: 'error'; message: string }
 
 const jobStatusLabels: Record<JobStatus, string> = {
@@ -65,10 +65,11 @@ function canFund(job: JobDetailDto, agreement: AgreementDto | null, escrow: Escr
 }
 
 async function loadPageData(jobId: number): Promise<Omit<Extract<PageState, { status: 'success' }>, 'status'>> {
-  const [job, agreement, escrow, events, disputes] = await Promise.all([
+  const [job, agreement, escrow, executionResult, events, disputes] = await Promise.all([
     api.job(jobId),
     api.agreement(jobId),
     api.jobEscrow(jobId),
+    api.execution(jobId).then((execution) => ({ execution, executionError: null })).catch((error: unknown) => ({ execution: null, executionError: errorMessage(error, 'Settlement eligibility could not be checked.') })),
     api.jobEvents(jobId),
     api.jobDisputes(jobId).catch((error: unknown) => {
       // Keep the existing escrow page usable against a pre-Phase-9 backend;
@@ -77,14 +78,14 @@ async function loadPageData(jobId: number): Promise<Omit<Extract<PageState, { st
       throw error
     }),
   ])
-  if (escrow === null) return { job, agreement, escrow, ledger: [], events, disputes }
+  if (escrow === null) return { job, agreement, escrow, ...executionResult, ledger: [], events, disputes }
 
   try {
     const ledger = await api.escrowLedger(escrow.id)
-    return { job, agreement, escrow, ledger, events, disputes }
+    return { job, agreement, escrow, ...executionResult, ledger, events, disputes }
   } catch (error: unknown) {
     // Older escrow responses embed ledger_entries and may not expose the Phase 7 ledger route yet.
-    if (error instanceof ApiError && error.status === 404) return { job, agreement, escrow, ledger: escrow.ledger_entries, events, disputes }
+    if (error instanceof ApiError && error.status === 404) return { job, agreement, escrow, ...executionResult, ledger: escrow.ledger_entries, events, disputes }
     throw error
   }
 }
@@ -95,7 +96,9 @@ export function EscrowPage() {
   const [reloadKey, setReloadKey] = useState(0)
   const [state, setState] = useState<PageState>(() => jobId === null ? { status: 'error', message: 'The job ID is invalid.' } : { status: 'loading' })
   const [funding, setFunding] = useState(false)
+  const [settling, setSettling] = useState(false)
   const [fundingError, setFundingError] = useState<string | null>(null)
+  const [settlementError, setSettlementError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   useEffect(() => {
@@ -115,6 +118,7 @@ export function EscrowPage() {
 
   const retry = () => {
     setFundingError(null)
+    setSettlementError(null)
     setReloadKey((value) => value + 1)
   }
 
@@ -142,11 +146,29 @@ export function EscrowPage() {
     }
   }
 
+  const release = async () => {
+    if (settling || state.status !== 'success' || state.escrow === null || state.execution?.execution_status !== 'settlement_ready') return
+    if (!window.confirm(`Release the eligible simulated escrow of ${formatMoney(state.escrow.funded_amount, state.escrow.currency)}? This app records a ledger entry only; no real money moves.`)) return
+
+    setSettling(true)
+    setSettlementError(null)
+    setSuccessMessage(null)
+    try {
+      await api.releaseEscrow(state.escrow.id)
+      setSuccessMessage('The backend accepted the simulated release. Reloading the persisted escrow and ledger state.')
+      setReloadKey((value) => value + 1)
+    } catch (error: unknown) {
+      setSettlementError(`${errorMessage(error, 'The simulated release request failed.')} Verification and job completion must still be accepted by the backend.`)
+    } finally {
+      setSettling(false)
+    }
+  }
+
   const backToJob = jobId === null ? '/jobs' : `/jobs/${jobId}`
-  return <div className="mx-auto max-w-6xl space-y-8"><Link to={backToJob} className="inline-flex items-center gap-2 text-sm font-semibold text-electric hover:text-white"><ArrowLeft size={16} /> Back to job</Link>{state.status === 'loading' && <LoadingPanel />}{state.status === 'error' && <ErrorPanel message={state.message} retry={retry} />}{state.status === 'success' && <EscrowDetails state={state} funding={funding} fundingError={fundingError} successMessage={successMessage} onFund={fund} />}</div>
+  return <div className="workspace-page escrow-page space-y-8"><Link to={backToJob} className="inline-flex items-center gap-2 text-sm font-semibold text-electric hover:text-white"><ArrowLeft size={16} /> Back to job</Link>{state.status === 'loading' && <LoadingPanel />}{state.status === 'error' && <ErrorPanel message={state.message} retry={retry} />}{state.status === 'success' && <EscrowDetails state={state} funding={funding} settling={settling} fundingError={fundingError} settlementError={settlementError} successMessage={successMessage} onFund={fund} onRelease={release} />}</div>
 }
 
-function EscrowDetails({ state, funding, fundingError, successMessage, onFund }: { state: Extract<PageState, { status: 'success' }>; funding: boolean; fundingError: string | null; successMessage: string | null; onFund: () => void }) {
+function EscrowDetails({ state, funding, settling, fundingError, settlementError, successMessage, onFund, onRelease }: { state: Extract<PageState, { status: 'success' }>; funding: boolean; settling: boolean; fundingError: string | null; settlementError: string | null; successMessage: string | null; onFund: () => void; onRelease: () => void }) {
   const validity = canFund(state.job, state.agreement, state.escrow)
   return <>
     <section className="rounded-3xl border border-line bg-panel p-6 sm:p-8">
@@ -156,11 +178,12 @@ function EscrowDetails({ state, funding, fundingError, successMessage, onFund }:
     </section>
 
     {fundingError && <div className="rounded-2xl border border-rose-300/25 bg-rose-300/5 p-5" role="alert"><p className="text-sm font-bold text-rose-100">Unable to fund demo escrow</p><p className="mt-2 text-sm leading-6 text-rose-100/80">{fundingError}</p></div>}
+    {settlementError && <div className="rounded-2xl border border-rose-300/25 bg-rose-300/5 p-5" role="alert"><p className="text-sm font-bold text-rose-100">Unable to release simulated escrow</p><p className="mt-2 text-sm leading-6 text-rose-100/80">{settlementError}</p></div>}
     {successMessage && <div className="flex items-start gap-3 rounded-2xl border border-accent/30 bg-accent/10 p-4" role="status"><CheckCircle2 className="mt-0.5 shrink-0 text-accent" size={19} /><p className="text-sm leading-6 text-slate-200">{successMessage}</p></div>}
 
       <DisputeBanner job={state.job} escrow={state.escrow} disputes={state.disputes} />
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-      <div className="space-y-5"><AgreementSummary agreement={state.agreement} job={state.job} /><EscrowStatusCard escrow={state.escrow} jobId={state.job.id} validity={validity} funding={funding} onFund={onFund} /></div>
+      <div className="space-y-5"><AgreementSummary agreement={state.agreement} job={state.job} /><EscrowStatusCard escrow={state.escrow} execution={state.execution} executionError={state.executionError} jobId={state.job.id} validity={validity} funding={funding} settling={settling} onFund={onFund} onRelease={onRelease} /></div>
       <div className="space-y-5"><LedgerHistory entries={state.ledger} escrow={state.escrow} /><AuditEvents events={state.events} /></div>
     </div>
   </>
@@ -173,12 +196,19 @@ function AgreementSummary({ agreement, job }: { agreement: AgreementDto | null; 
   return <section className={`rounded-3xl border p-6 sm:p-8 ${accepted ? 'border-accent/30 bg-accent/5' : 'border-line bg-panel'}`}><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-accent">Agreement #{agreement.id}</p><h3 className="mt-2 text-xl font-bold text-white">{accepted ? 'Accepted agreement' : 'Agreement is not accepted'}</h3></div><StatusPill tone={accepted ? 'success' : 'warning'}>{accepted ? 'Accepted' : agreement.status}</StatusPill></div><dl className="mt-6 grid gap-4 sm:grid-cols-3"><SummaryValue label="Version" value={version === undefined || version === null ? 'Legacy response' : String(version)} /><SummaryValue label="Agreed amount" value={formatMoney(agreement.amount, agreement.currency)} /><SummaryValue label="Currency" value={agreement.currency} /></dl><p className="mt-5 text-sm leading-6 text-slate-400">{accepted ? 'These terms are frozen and are the basis for this escrow record.' : 'Funding is unavailable until this agreement reaches the accepted state.'}</p><Link to={`/jobs/${agreement.job_id}/agreement`} className="mt-5 inline-flex rounded-xl border border-electric/30 px-4 py-2.5 text-sm font-bold text-electric hover:bg-electric/10">View full agreement</Link></section>
 }
 
-function EscrowStatusCard({ escrow, jobId, validity, funding, onFund }: { escrow: EscrowDto | null; jobId: number; validity: { allowed: boolean; reason: string }; funding: boolean; onFund: () => void }) {
-  if (escrow === null) return <section className="rounded-3xl border border-line bg-panel p-6 sm:p-8"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-accent">Funding state</p><h3 className="mt-2 text-xl font-bold text-white">Escrow not funded</h3></div><StatusPill tone="warning">Not funded</StatusPill></div><dl className="mt-6 grid gap-4 sm:grid-cols-2"><SummaryValue label="Current escrow status" value="No persisted record" /><SummaryValue label="Verification state" value="Awaiting escrow record" /></dl><p className="mt-5 text-sm leading-6 text-slate-400">{validity.reason}</p>{validity.allowed ? <button type="button" onClick={onFund} disabled={funding} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-3 text-sm font-bold text-ink transition hover:bg-[#5ee0d9] disabled:cursor-not-allowed disabled:opacity-60">{funding ? <><LoaderCircle className="animate-spin" size={17} /> Funding demo escrow…</> : <><CircleDollarSign size={17} /> Fund Demo Escrow</>}</button> : <div className="mt-6 rounded-2xl border border-line bg-ink/30 p-4 text-sm text-slate-400">Resolve the agreement or job state above before funding becomes available.</div>}</section>
-  if (escrow?.status === 'pending') return <section className="rounded-3xl border border-amber-300/25 bg-amber-300/5 p-6 sm:p-8"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-200">Funding state</p><h3 className="mt-2 text-xl font-bold text-white">Pending escrow record</h3></div><StatusPill tone="warning">Pending</StatusPill></div><dl className="mt-6 grid gap-4 sm:grid-cols-2"><SummaryValue label="Accepted amount" value={formatMoney(escrow.amount, escrow.currency)} /><SummaryValue label="Funded amount" value={formatMoney(escrow.funded_amount, escrow.currency)} /><SummaryValue label="Ledger entries" value={String(escrow.ledger_entries.length)} /><SummaryValue label="Funded at" value="Not recorded" /></dl><p className="mt-5 text-sm leading-6 text-slate-400">A pending escrow record exists without a completed funding state. The backend can reconcile it without creating a duplicate ledger effect.</p>{validity.allowed ? <button type="button" onClick={onFund} disabled={funding} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-3 text-sm font-bold text-ink transition hover:bg-[#5ee0d9] disabled:cursor-not-allowed disabled:opacity-60">{funding ? <><LoaderCircle className="animate-spin" size={17} /> Funding demo escrow…</> : <><CircleDollarSign size={17} /> Complete Demo Funding</>}</button> : <div className="mt-6 rounded-2xl border border-line bg-ink/30 p-4 text-sm text-slate-400">{validity.reason}</div>}</section>
-  const status = escrow.status
-  const executionMessage = status === 'funded' || status === 'held' ? 'Escrow is funded. Continue toward execution and submission; settlement is not recorded here.' : `The persisted escrow status is ${escrowStatusLabels[status].toLowerCase()}.`
-  return <section className="rounded-3xl border border-line bg-panel p-6 sm:p-8"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-accent">Funding state</p><h3 className="mt-2 text-xl font-bold text-white">Persisted escrow record</h3></div><StatusPill tone={statusTone(status)}>{escrowStatusLabels[status]}</StatusPill></div><dl className="mt-6 grid gap-4 sm:grid-cols-2"><SummaryValue label="Current escrow status" value={escrowStatusLabels[status]} /><SummaryValue label="Accepted amount" value={formatMoney(escrow.amount, escrow.currency)} /><SummaryValue label="Funded amount" value={formatMoney(escrow.funded_amount, escrow.currency)} /><SummaryValue label="Verification state" value="Escrow and ledger records loaded" /><SummaryValue label="Funded at" value={escrow.funded_at ? formatDate(escrow.funded_at) : 'Not recorded'} /></dl><p className="mt-5 text-sm leading-6 text-slate-400">{executionMessage}</p><div className="mt-4 flex flex-wrap gap-3"><Link to={`/jobs/${jobId}/execution`} className="inline-flex items-center gap-2 rounded-xl border border-electric/30 px-4 py-2.5 text-sm font-bold text-electric hover:bg-electric/10">Open execution workspace</Link><p className="self-center text-xs leading-5 text-slate-500">Settlement stays guarded by the existing escrow service; verification never releases funds directly.</p></div></section>
+function EscrowStatusCard({ escrow, execution, executionError, jobId, validity, funding, settling, onFund, onRelease }: { escrow: EscrowDto | null; execution: ExecutionDto | null; executionError: string | null; jobId: number; validity: { allowed: boolean; reason: string }; funding: boolean; settling: boolean; onFund: () => void; onRelease: () => void }) {
+  if (escrow === null) return <section className="rounded-3xl border border-line bg-panel p-6 sm:p-8"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-accent">Funding state</p><h3 className="mt-2 text-xl font-bold text-white">Escrow not funded</h3></div><StatusPill tone="warning">Not funded</StatusPill></div><dl className="mt-6 grid gap-4 sm:grid-cols-2"><SummaryValue label="Current escrow status" value="No persisted record" /><SummaryValue label="Verification state" value="Awaiting escrow record" /></dl><p className="mt-5 text-sm leading-6 text-slate-400">{validity.reason}</p>{validity.allowed ? <button type="button" onClick={onFund} disabled={funding} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-3 text-sm font-bold text-ivory transition hover:bg-forest disabled:cursor-not-allowed disabled:opacity-60">{funding ? <><LoaderCircle className="animate-spin" size={17} /> Funding demo escrow…</> : <><CircleDollarSign size={17} /> Fund Demo Escrow</>}</button> : <div className="mt-6 rounded-2xl border border-line bg-ink/30 p-4 text-sm text-slate-400">Resolve the agreement or job state above before funding becomes available.</div>}</section>
+  if (escrow?.status === 'pending') return <section className="rounded-3xl border border-amber-300/25 bg-amber-300/5 p-6 sm:p-8"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-200">Funding state</p><h3 className="mt-2 text-xl font-bold text-white">Pending escrow record</h3></div><StatusPill tone="warning">Pending</StatusPill></div><dl className="mt-6 grid gap-4 sm:grid-cols-2"><SummaryValue label="Accepted amount" value={formatMoney(escrow.amount, escrow.currency)} /><SummaryValue label="Funded amount" value={formatMoney(escrow.funded_amount, escrow.currency)} /><SummaryValue label="Ledger entries" value={String(escrow.ledger_entries.length)} /><SummaryValue label="Funded at" value="Not recorded" /></dl><p className="mt-5 text-sm leading-6 text-slate-400">A pending escrow record exists without a completed funding state. The backend can reconcile it without creating a duplicate ledger effect.</p>{validity.allowed ? <button type="button" onClick={onFund} disabled={funding} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-3 text-sm font-bold text-ivory transition hover:bg-forest disabled:cursor-not-allowed disabled:opacity-60">{funding ? <><LoaderCircle className="animate-spin" size={17} /> Funding demo escrow…</> : <><CircleDollarSign size={17} /> Complete Demo Funding</>}</button> : <div className="mt-6 rounded-2xl border border-line bg-ink/30 p-4 text-sm text-slate-400">{validity.reason}</div>}</section>
+   const status = escrow.status
+   const releaseEligible = (status === 'funded' || status === 'held') && execution?.execution_status === 'settlement_ready'
+   const executionMessage = status === 'funded' || status === 'held'
+     ? releaseEligible
+       ? 'Verification passed and the backend reports this escrow as eligible for simulated release. Review the consequence before continuing.'
+       : executionError
+         ? executionError
+         : 'Escrow is funded. Continue through execution and verification; the backend has not yet authorized release.'
+     : `The persisted escrow status is ${escrowStatusLabels[status].toLowerCase()}.`
+   return <section className="rounded-3xl border border-line bg-panel p-6 sm:p-8"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-accent">Funding state</p><h3 className="mt-2 text-xl font-bold text-white">Persisted escrow record</h3></div><StatusPill tone={statusTone(status)}>{escrowStatusLabels[status]}</StatusPill></div><dl className="mt-6 grid gap-4 sm:grid-cols-2"><SummaryValue label="Current escrow status" value={escrowStatusLabels[status]} /><SummaryValue label="Accepted amount" value={formatMoney(escrow.amount, escrow.currency)} /><SummaryValue label="Funded amount" value={formatMoney(escrow.funded_amount, escrow.currency)} /><SummaryValue label="Execution eligibility" value={execution?.execution_status ? execution.execution_status.replaceAll('_', ' ') : 'Not available'} /><SummaryValue label="Funded at" value={escrow.funded_at ? formatDate(escrow.funded_at) : 'Not recorded'} /></dl><p className="mt-5 text-sm leading-6 text-slate-400">{executionMessage}</p><div className="mt-4 flex flex-wrap items-center gap-3"><Link to={`/jobs/${jobId}/execution`} className="inline-flex items-center gap-2 rounded-xl border border-electric/30 px-4 py-2.5 text-sm font-bold text-electric hover:bg-electric/10">Open execution workspace</Link>{releaseEligible && <button type="button" onClick={onRelease} disabled={settling} className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-bold text-ivory transition hover:bg-forest disabled:cursor-not-allowed disabled:opacity-60">{settling ? <><LoaderCircle className="animate-spin" size={16} /> Releasing simulated escrow…</> : <><ShieldCheck size={16} /> Release simulated escrow</>}</button>}<p className="basis-full text-xs leading-5 text-slate-500">This is a simulated ledger action, not a bank transfer, custody service, or blockchain settlement.</p></div></section>
 }
 
 function DisputeBanner({ job, escrow, disputes }: { job: JobDetailDto; escrow: EscrowDto | null; disputes: DisputeDto[] }) {

@@ -128,7 +128,7 @@ export function MatchingPage() {
 }
 
 function MatchingFrame({ jobId, children }: { jobId: number | null; children: ReactNode }) {
-  return <div className="mx-auto max-w-6xl space-y-8"><Link to={jobId === null ? '/jobs' : `/jobs/${jobId}`} className="inline-flex items-center gap-2 text-sm font-semibold text-electric hover:text-white"><ArrowLeft size={16} /> Back to job</Link>{children}</div>
+  return <div className="workspace-page matching-page space-y-8"><Link to={jobId === null ? '/jobs' : `/jobs/${jobId}`} className="inline-flex items-center gap-2 text-sm font-semibold text-electric hover:text-white"><ArrowLeft size={16} /> Back to job</Link>{children}</div>
 }
 
 function SummaryValue({ label, value, icon }: { label: string; value: string; icon?: ReactNode }) {

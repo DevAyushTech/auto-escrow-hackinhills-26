@@ -17,6 +17,7 @@ Implemented:
 
 - FastAPI application with OpenAPI docs at `/docs`.
 - `GET /api/health` liveness endpoint.
+- `GET /api/ready` database-backed readiness endpoint.
 - Environment-backed settings and local-origin CORS.
 - SQLAlchemy 2 models with relationships, foreign keys, indexes, uniqueness constraints, and database checks.
 - SQLite local database with PostgreSQL-compatible URL support.
@@ -47,6 +48,8 @@ Implemented:
 - Persisted dispute creation, review, demo-operator resolution, evidence display, dispute-specific audit events, and escrow/job protection.
 - Dispute list/detail/create UI integrated with job details and escrow pages.
 - Responsive navigation for Dashboard, Agents, Jobs, Escrow, Disputes, and Configuration.
+- Warm ivory/forest editorial application shell with API-backed escrow overview and read-only connection settings.
+- Workflow map on job details with backend-derived next steps and guarded simulated escrow release when settlement eligibility is returned.
 - Phase 11 security and reliability hardening for ledger reconciliation, retry verification state, nested schema handling, dispute restoration guards, seed boundaries, pending escrow display, SPA deep links, and fresh migration validation.
 
 Not yet implemented:
@@ -123,6 +126,7 @@ The root `.env.example` is a safe reference. When running the services locally, 
 Root reference `.env.example`:
 
 ```text
+APP_NAME=Auto Escrow API
 APP_ENV=development
 DATABASE_URL=sqlite:///./auto_escrow.db
 TEST_DATABASE_URL=sqlite:///./test_auto_escrow.db
@@ -160,7 +164,7 @@ py -3.11 -m venv .venv
 python -m pip install --upgrade pip
 python -m pip install -r backend\requirements.txt
 Set-Location backend
-Copy-Item .env.example .env -ErrorAction SilentlyContinue
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 python -m alembic upgrade head
 ```
 
@@ -202,8 +206,8 @@ In the second PowerShell window:
 
 ```powershell
 Set-Location frontend
-Copy-Item .env.example .env -ErrorAction SilentlyContinue
-npm install
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+npm ci
 npm run dev
 ```
 
@@ -212,6 +216,7 @@ npm run dev
 - Frontend: <http://localhost:5173>
 - API root: <http://localhost:8000>
 - Health: <http://localhost:8000/api/health>
+- Readiness: <http://localhost:8000/api/ready>
 - OpenAPI docs: <http://localhost:8000/docs>
 - OpenAPI JSON: <http://localhost:8000/openapi.json>
 
@@ -404,6 +409,9 @@ Backend tests use temporary isolated SQLite databases and cover database initial
 
 ## Manual end-to-end browser walkthrough
 
+The standalone repeatable test script is [`docs/MANUAL_E2E.md`](docs/MANUAL_E2E.md).
+The shorter judge presentation remains in [`DEMO_GUIDE.md`](DEMO_GUIDE.md).
+
 1. Start the backend, apply migrations, and run `python -m app.seed --with-jobs`.
 2. Start the frontend and open <http://localhost:5173/jobs>.
 3. Click **Create job**, complete the task brief, budget, currency, and future deadline, then submit.
@@ -441,9 +449,9 @@ If the API is unavailable, the marketplace shows an error and retry action rathe
 - Docker images do not run migrations automatically. Apply migrations through a controlled deployment step and provide persistent database storage before hosting.
 - PostgreSQL support is connection-level compatibility only; this repository does not provision PostgreSQL or provide deployment orchestration.
 
-## Deployment direction (not completed)
+## Deployment preparation (not executed)
 
-A future deployment can serve the built frontend from a static host or the included Nginx image, run the FastAPI backend on a managed container/service, and use a persistent managed PostgreSQL database. The deployment must inject backend environment variables securely, set an exact frontend origin, run `alembic upgrade head` as a controlled release step, provide persistent storage/backups, and expose a real readiness check in addition to `/api/health`. None of this deployment has been executed or provisioned by this repository.
+The prepared deployment architecture is an HTTPS ingress with the included Nginx frontend image, the included FastAPI backend image, and persistent managed PostgreSQL. The frontend Docker build accepts `VITE_API_BASE_URL`; the backend image has a readiness health check; CORS uses the exact configured `FRONTEND_ORIGIN`; and Alembic remains an explicit release step. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md), [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md), and [`docs/DEMO_SECURITY_CHECKLIST.md`](docs/DEMO_SECURITY_CHECKLIST.md). No cloud service was provisioned and no URL was deployed or verified by this session.
 
 ## Manual GitHub publication
 

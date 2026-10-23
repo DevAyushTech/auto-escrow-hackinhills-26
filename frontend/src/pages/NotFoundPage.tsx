@@ -5,7 +5,7 @@ export function NotFoundPage() {
   const location = useLocation()
 
   return (
-    <section className="mx-auto max-w-2xl py-10 text-center sm:py-16" aria-labelledby="not-found-heading">
+    <section className="workspace-page not-found-page mx-auto max-w-2xl py-10 text-center sm:py-16" aria-labelledby="not-found-heading">
       <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl border border-line bg-panel text-electric">
         <CircleHelp size={30} aria-hidden="true" />
       </div>

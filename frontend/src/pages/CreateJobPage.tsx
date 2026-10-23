@@ -148,22 +148,23 @@ export function CreateJobPage() {
   }
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+    <div className="workspace-page create-job-page space-y-8">
+      <div className="create-job-page__back flex flex-wrap items-center justify-between gap-4">
         <Link to="/jobs" className="inline-flex items-center gap-2 text-sm font-semibold text-electric hover:text-white"><ArrowLeft size={16} /> Back to jobs</Link>
         <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">New job</span>
       </div>
 
-      <section className="max-w-3xl">
-        <p className="text-xs font-bold uppercase tracking-[0.2em] text-accent">Job management</p>
-        <h2 className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl">Define work with an auditable finish line.</h2>
+      <section className="workspace-page__intro create-job-page__intro">
+        <div className="workspace-page__intro-copy"><p className="workspace-page__eyebrow">Job management</p>
+        <h2 className="workspace-page__title">Define work with an auditable finish line.</h2>
         <p className="mt-4 text-base leading-7 text-slate-400">Create a persisted job record with the same constraints enforced by the backend. Required skills and acceptance criteria use one item per line.</p>
+        </div>
       </section>
 
-      <form onSubmit={submit} noValidate className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <form onSubmit={submit} noValidate className="create-job-page__form grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-5">
           {apiError && <div className="rounded-2xl border border-rose-300/25 bg-rose-300/5 p-5" role="alert"><p className="text-sm font-semibold text-rose-100">Job creation failed</p><p className="mt-2 text-sm leading-6 text-rose-100/75">{apiError}</p></div>}
-          <section className="rounded-2xl border border-line bg-panel p-5 sm:p-6">
+          <section className="create-job-page__section rounded-2xl border border-line bg-panel p-5 sm:p-6">
             <div className="mb-5 flex items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-xl bg-electric/10 text-electric"><Plus size={18} /></div><div><h3 className="font-bold text-white">Task brief</h3><p className="text-xs text-slate-500">Describe the work another agent must complete.</p></div></div>
             <div className="space-y-5">
               <FormField label="Title" required error={errors.title} hint="1–240 characters."><input value={values.title} onChange={(event) => updateValue('title', event.target.value)} className={inputClassName} aria-label="Title" aria-invalid={Boolean(errors.title)} aria-describedby={errors.title ? 'title-error' : undefined} placeholder="e.g. Review the payment API contract" /></FormField>
@@ -178,7 +179,7 @@ export function CreateJobPage() {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-line bg-panel p-5 sm:p-6">
+          <section className="create-job-page__section rounded-2xl border border-line bg-panel p-5 sm:p-6">
             <div className="mb-5 flex items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-xl bg-amber-300/10 text-amber-200"><CircleDollarSign size={18} /></div><div><h3 className="font-bold text-white">Budget and deadline</h3><p className="text-xs text-slate-500">Both values are persisted with the job.</p></div></div>
             <div className="grid gap-5 sm:grid-cols-[1fr_140px]">
               <FormField label="Budget" required error={errors.budget} hint="Positive amount, up to two decimal places."><input type="number" min="0.01" step="0.01" inputMode="decimal" value={values.budget} onChange={(event) => updateValue('budget', event.target.value)} className={inputClassName} aria-label="Budget" aria-invalid={Boolean(errors.budget)} aria-describedby={errors.budget ? 'budget-error' : undefined} placeholder="125.00" /></FormField>
@@ -187,10 +188,10 @@ export function CreateJobPage() {
             <div className="mt-5"><FormField label="Deadline" required error={errors.deadline} hint="Your local time is converted to a timezone-aware ISO timestamp."><input type="datetime-local" value={values.deadline} onChange={(event) => updateValue('deadline', event.target.value)} className={inputClassName} aria-label="Deadline" aria-invalid={Boolean(errors.deadline)} aria-describedby={errors.deadline ? 'deadline-error' : undefined} /></FormField></div>
           </section>
 
-          <div className="flex flex-wrap justify-end gap-3"><Link to="/jobs" className="rounded-xl border border-line px-5 py-3 text-sm font-bold text-slate-300 hover:bg-white/[0.05] hover:text-white">Cancel</Link><button type="submit" disabled={submitting} className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-3 text-sm font-bold text-ink transition hover:bg-[#5ee0d9] disabled:cursor-not-allowed disabled:opacity-60">{submitting ? <><LoaderCircle className="animate-spin" size={17} /> Creating job…</> : <><CheckCircle2 size={17} /> Create job</>}</button></div>
+          <div className="flex flex-wrap justify-end gap-3"><Link to="/jobs" className="rounded-xl border border-line px-5 py-3 text-sm font-bold text-slate-300 hover:bg-white/[0.05] hover:text-white">Cancel</Link><button type="submit" disabled={submitting} className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-3 text-sm font-bold text-ivory transition hover:bg-forest disabled:cursor-not-allowed disabled:opacity-60">{submitting ? <><LoaderCircle className="animate-spin" size={17} /> Creating job…</> : <><CheckCircle2 size={17} /> Create job</>}</button></div>
         </div>
 
-        <aside className="h-fit rounded-2xl border border-line bg-panel p-5 sm:p-6 xl:sticky xl:top-24">
+        <aside className="create-job-page__summary h-fit rounded-2xl border border-line bg-panel p-5 sm:p-6 xl:sticky xl:top-24">
           <div className="flex items-center gap-3"><CalendarClock className="text-electric" size={19} /><h3 className="font-bold text-white">Before you create</h3></div>
           <p className="mt-3 text-sm leading-6 text-slate-400">Review the values that will be visible on the persisted job record.</p>
           <dl className="mt-6 space-y-4"><SummaryRow label="Budget" value={summaryBudget} /><SummaryRow label="Deadline" value={summaryDeadline} /></dl>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ArrowUpDown, BriefcaseBusiness, CalendarClock, CircleDollarSign, LoaderCircle, Plus, Search, SlidersHorizontal } from 'lucide-react'
+import { ArrowRight, ArrowUpDown, BriefcaseBusiness, CalendarClock, CircleDollarSign, LoaderCircle, Plus, Search, SlidersHorizontal } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { StatusPill } from '../components/StatusPill'
 import { ApiError, api, JobListResponseDto, JobStatus } from '../lib/api'
@@ -43,7 +43,7 @@ function jobErrorMessage(error: unknown): string {
   return error instanceof ApiError ? error.message : 'Job records could not be loaded.'
 }
 
-export function JobsPage() {
+export function LegacyJobsPage() {
   const [searchParams] = useSearchParams()
   const selectedAgentId = parseAgentId(searchParams.get('agentId'))
   const [reloadKey, setReloadKey] = useState(0)
@@ -99,7 +99,7 @@ export function JobsPage() {
     <div className="space-y-8">
       <section className="flex flex-wrap items-start justify-between gap-5">
         <div className="max-w-3xl"><div className="mb-5 inline-flex rounded-2xl border border-line bg-panel p-4 text-accent"><BriefcaseBusiness size={28} /></div><p className="text-xs font-bold uppercase tracking-[0.2em] text-accent">Job workspace</p><h2 className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl">Persisted work agreements.</h2><p className="mt-5 text-base leading-7 text-slate-400">Browse jobs stored by the connected API, refine the registry, and open the complete record before matching or escrow begins.</p></div>
-        <Link to="/jobs/new" className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-bold text-ink transition hover:bg-[#5ee0d9]"><Plus size={17} /> Create job</Link>
+        <Link to="/jobs/new" className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-bold text-ivory transition hover:bg-forest"><Plus size={17} /> Create job</Link>
       </section>
 
       {selectedAgentId !== null && <div className="rounded-2xl border border-accent/30 bg-accent/10 p-5" role="status" aria-live="polite"><p className="text-xs font-bold uppercase tracking-[0.18em] text-accent">Selection context</p><p className="mt-2 text-sm font-semibold text-white">Agent #{selectedAgentId} is carried into this job workspace.</p><p className="mt-2 text-sm leading-6 text-slate-300">This URL context is not a persisted assignment. Open the job, run matching, and use the agreement workspace after the server persists a selected agent.</p></div>}
@@ -120,13 +120,97 @@ export function JobsPage() {
             </div>
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4"><p className="text-sm text-slate-400" aria-live="polite"><span className="font-semibold text-white">{filteredJobs.length} results</span> from {state.data.total} total jobs</p><button type="button" onClick={clearFilters} disabled={!hasFilters} className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-sm font-semibold text-electric hover:bg-electric/10 disabled:cursor-not-allowed disabled:text-slate-600"><SlidersHorizontal size={15} /> Clear filters</button></div>
           </div>
-          {state.data.items.length === 0 && <EmptyJobs message="No persisted jobs are available yet." detail="The jobs API returned an empty list. Create the first job from this workspace." action={<Link to="/jobs/new" className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-bold text-ink"><Plus size={16} /> Create job</Link>} />}
+          {state.data.items.length === 0 && <EmptyJobs message="No persisted jobs are available yet." detail="The jobs API returned an empty list. Create the first job from this workspace." action={<Link to="/jobs/new" className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-bold text-ivory"><Plus size={16} /> Create job</Link>} />}
           {state.data.items.length > 0 && filteredJobs.length === 0 && <EmptyJobs message="No jobs match those filters." detail="Try a different search or range, or clear the filters." action={<button type="button" onClick={clearFilters} className="rounded-xl border border-line px-4 py-2.5 text-sm font-semibold text-slate-300 hover:bg-white/[0.05]">Clear filters</button>} />}
           {filteredJobs.length > 0 && <div className="grid gap-4 md:grid-cols-2">{filteredJobs.map((job) => <JobCard key={job.id} job={job} selectedAgentId={selectedAgentId} />)}</div>}
         </>}
       </section>
     </div>
   )
+}
+
+export function JobsPage() {
+  return <JobsPageRedesigned />
+}
+
+function JobsPageRedesigned() {
+  const [searchParams] = useSearchParams()
+  const selectedAgentId = parseAgentId(searchParams.get('agentId'))
+  const [reloadKey, setReloadKey] = useState(0)
+  const [state, setState] = useState<JobState>({ status: 'loading' })
+  const [query, setQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | JobStatus>('all')
+  const [categoryFilter, setCategoryFilter] = useState('all')
+  const [minBudget, setMinBudget] = useState('')
+  const [maxBudget, setMaxBudget] = useState('')
+  const [sort, setSort] = useState<JobSort>('newest')
+
+  useEffect(() => {
+    let active = true
+    setState({ status: 'loading' })
+    api.listJobs().then((data) => {
+      if (active) setState({ status: 'success', data })
+    }).catch((error: unknown) => {
+      if (active) setState({ status: 'error', message: jobErrorMessage(error) })
+    })
+    return () => { active = false }
+  }, [reloadKey])
+
+  const categories = useMemo(() => state.status === 'success' ? Array.from(new Set(state.data.items.map((job) => job.task_category))).sort((left, right) => left.localeCompare(right)) : [], [state])
+  const filteredJobs = useMemo(() => {
+    if (state.status !== 'success') return []
+    const normalizedQuery = query.trim().toLowerCase()
+    const minimum = minBudget.trim() === '' ? null : Number(minBudget)
+    const maximum = maxBudget.trim() === '' ? null : Number(maxBudget)
+    return [...state.data.items].filter((job) => {
+      const searchable = [job.public_id, job.title, job.description, job.task_category, job.expected_output, ...job.required_skills, ...job.acceptance_criteria].join(' ').toLowerCase()
+      const budget = Number(job.budget)
+      return (!normalizedQuery || searchable.includes(normalizedQuery)) && (statusFilter === 'all' || job.status === statusFilter) && (categoryFilter === 'all' || job.task_category === categoryFilter) && (minimum === null || (Number.isFinite(minimum) && budget >= minimum)) && (maximum === null || (Number.isFinite(maximum) && budget <= maximum))
+    }).sort((left, right) => sort === 'deadline' ? new Date(left.deadline).getTime() - new Date(right.deadline).getTime() : new Date(right.created_at).getTime() - new Date(left.created_at).getTime())
+  }, [categoryFilter, maxBudget, minBudget, query, sort, state, statusFilter])
+
+  const clearFilters = () => {
+    setQuery('')
+    setStatusFilter('all')
+    setCategoryFilter('all')
+    setMinBudget('')
+    setMaxBudget('')
+    setSort('newest')
+  }
+  const hasFilters = query !== '' || statusFilter !== 'all' || categoryFilter !== 'all' || minBudget !== '' || maxBudget !== '' || sort !== 'newest'
+
+  return <div className="workspace-page jobs-page">
+    <section className="workspace-page__intro">
+      <div className="workspace-page__intro-copy"><p className="workspace-page__eyebrow">Job registry</p><h2 className="workspace-page__title">Keep the work moving.</h2><p className="workspace-page__lead">Browse persisted jobs, find the next workflow step, and open the complete record before matching, agreement, or escrow actions begin.</p></div>
+      <div className="workspace-page__actions"><Link to="/jobs/new" className="action-primary"><Plus size={17} /> Create job</Link></div>
+    </section>
+    {selectedAgentId !== null && <div className="workspace-status-note jobs-page__selection" role="status" aria-live="polite"><strong>Agent #{selectedAgentId} is carried into this job workspace.</strong><p>This URL context is not a persisted assignment. Open the job, run matching, and use the agreement workspace after the server persists a selected agent.</p></div>}
+    <section className="workspace-section" aria-labelledby="job-list-heading">
+      <div className="workspace-section__heading"><div><p className="workspace-section__label">Projects and tasks</p><h2 id="job-list-heading">Persisted work agreements.</h2></div>{state.status === 'success' && <StatusPill tone="neutral">{`${state.data.total} persisted records`}</StatusPill>}</div>
+      {state.status === 'loading' && <div className="workspace-panel workspace-panel--padded" aria-label="Loading jobs"><div className="state-line"><LoaderCircle className="animate-spin text-electric" size={18} /> Loading persisted job records…</div><div className="job-list-skeleton"><JobSkeleton /><JobSkeleton /></div></div>}
+      {state.status === 'error' && <div className="workspace-error" role="alert"><p>Unable to load job records</p><span>{state.message}</span><button type="button" onClick={() => setReloadKey((value) => value + 1)}>Retry jobs request</button></div>}
+      {state.status === 'success' && <>
+        <div className="workspace-toolbar jobs-toolbar"><div className="workspace-toolbar__grid jobs-toolbar__grid"><label className="workspace-control jobs-search"><Search size={17} className="shrink-0 text-slate-500" /><span className="sr-only">Search jobs</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title, description, skill…" aria-label="Search jobs" /></label><JobFilterSelect label="Filter by status" value={statusFilter} onChange={(value) => setStatusFilter(value as 'all' | JobStatus)} options={Object.entries(jobStatusLabels).map(([value, label]) => ({ value, label }))} emptyLabel="All statuses" /><JobFilterSelect label="Filter by category" value={categoryFilter} onChange={setCategoryFilter} options={categories.map((category) => ({ value: category, label: `Category: ${category}` }))} emptyLabel="All categories" /><JobFilterInput label="Minimum budget" value={minBudget} onChange={setMinBudget} placeholder="Min budget" /><JobFilterInput label="Maximum budget" value={maxBudget} onChange={setMaxBudget} placeholder="Max budget" /><JobFilterSelect label="Sort jobs" value={sort} onChange={(value) => setSort(value as JobSort)} options={[{ value: 'newest', label: 'Newest' }, { value: 'deadline', label: 'Nearest deadline' }]} emptyLabel="Sort jobs" /></div><div className="workspace-toolbar__footer"><p className="results-count" aria-live="polite"><strong>{filteredJobs.length} results</strong> from {state.data.total} total jobs</p><button type="button" onClick={clearFilters} disabled={!hasFilters} className="text-action"><SlidersHorizontal size={15} /> Clear filters</button></div></div>
+        {state.data.items.length === 0 && <EmptyJobs message="No persisted jobs are available yet." detail="The jobs API returned an empty list. Create the first job from this workspace." action={<Link to="/jobs/new" className="action-primary"><Plus size={16} /> Create job</Link>} />}
+        {state.data.items.length > 0 && filteredJobs.length === 0 && <EmptyJobs message="No jobs match those filters." detail="Try a different search or range, or clear the filters." action={<button type="button" className="action-secondary" onClick={clearFilters}>Clear filters</button>} />}
+        {filteredJobs.length > 0 && <div className="job-directory">{filteredJobs.map((job) => <RedesignedJobRow key={job.id} job={job} selectedAgentId={selectedAgentId} />)}</div>}
+      </>}
+    </section>
+  </div>
+}
+
+function JobFilterSelect({ label, value, onChange, options, emptyLabel }: { label: string; value: string; onChange: (value: string) => void; options: { value: string; label: string }[]; emptyLabel: string }) {
+  return <label className="workspace-control"><ArrowUpDown size={16} className="shrink-0 text-slate-500" /><span className="sr-only">{label}</span><select value={value} onChange={(event) => onChange(event.target.value)} aria-label={label}><option value="all">{emptyLabel}</option>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+}
+
+function JobFilterInput({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder: string }) {
+  return <label className="workspace-control"><CircleDollarSign size={16} className="shrink-0 text-slate-500" /><span className="sr-only">{label}</span><input type="number" min="0" step="0.01" value={value} onChange={(event) => onChange(event.target.value)} aria-label={label} placeholder={placeholder} /></label>
+}
+
+function RedesignedJobRow({ job, selectedAgentId }: { job: JobListResponseDto['items'][number]; selectedAgentId: number | null }) {
+  const tone = job.status === 'completed' ? 'success' : job.status === 'disputed' || job.status === 'cancelled' ? 'danger' : job.status === 'in_progress' || job.status === 'under_review' ? 'warning' : 'neutral'
+  const detailPath = `/jobs/${job.id}${selectedAgentId === null ? '' : `?agentId=${selectedAgentId}`}`
+  return <article className="job-row"><div className="job-row__main"><div className="job-row__heading"><div><p className="job-row__id">{job.public_id} · Job #{job.id}</p><h3>{job.title}</h3></div><StatusPill tone={tone}>{jobStatusLabels[job.status]}</StatusPill></div><p className="job-row__description">{job.description}</p><p className="job-row__deliverable"><span>Expected output</span>{job.expected_output}</p><div className="job-row__facts"><span><CircleDollarSign size={14} />{formatBudget(job.budget, job.currency)}</span><span><CalendarClock size={14} />Due {formatDate(job.deadline)}</span><span>{job.task_category}</span><span>{job.selected_agent_id === null ? 'No agent selected' : `Selected agent #${job.selected_agent_id}`}</span></div></div><div className="job-row__stage"><p>Next context</p><strong>{job.status === 'open' && job.selected_agent_id === null ? 'Run matching' : job.status === 'assigned' ? 'Review agreement' : job.status === 'completed' ? 'Review record' : 'Open workflow'}</strong><span>{job.acceptance_criteria.length} acceptance criteria</span></div><div className="job-row__actions"><Link to={detailPath} className="text-action" aria-label={selectedAgentId === null ? `Open ${job.title}` : `Select ${job.title} for the selected agent`}>Open job <ArrowRight size={15} /></Link>{job.status === 'open' && job.selected_agent_id === null && <Link to={`/jobs/${job.id}/matching${selectedAgentId === null ? '' : `?agentId=${selectedAgentId}`}`} className="action-secondary">Run matching <ArrowRight size={15} /></Link>}</div></article>
 }
 
 function FilterSelect({ label, value, onChange, options, emptyLabel }: { label: string; value: string; onChange: (value: string) => void; options: { value: string; label: string }[]; emptyLabel: string }) {

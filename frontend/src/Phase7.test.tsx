@@ -73,6 +73,27 @@ const ledger = [{
   occurred_at: '2030-05-03T12:00:00+00:00',
 }]
 
+const settlementReadyExecution = {
+  job_id: 17,
+  job_status: 'completed',
+  execution_status: 'settlement_ready',
+  selected_agent_id: 4,
+  executor_agent_id: 4,
+  agreement_id: 6,
+  accepted_agreement_version: 3,
+  escrow_status: 'funded',
+  executor_type: 'local_demo',
+  can_start: false,
+  can_submit: false,
+  can_verify: false,
+  start_reason: 'Execution is complete.',
+  submit_reason: 'No submission is required.',
+  verify_reason: 'Verification already passed.',
+  started_at: '2030-05-04T12:00:00+00:00',
+  latest_submission_version: 1,
+  latest_verification_result: 'passed',
+}
+
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 }
@@ -194,15 +215,42 @@ describe('Phase 7 professional simulated escrow', () => {
   })
 
   it('renders ledger history and related audit events without claiming release', async () => {
-    stubApi(baseHandler({ currentEscrow: escrow, ledgerEntries: ledger, events: [{ id: 1, job_id: 17, actor_agent_id: null, event_type: 'escrow.funded', description: 'Demo escrow was funded', data: {}, created_at: '2030-05-03T12:00:00+00:00' }] }))
+    stubApi((url, init) => {
+      if (url.endsWith('/api/v1/jobs/17/execution')) return jsonResponse({ ...settlementReadyExecution, execution_status: 'awaiting_submission', can_start: true, latest_verification_result: null })
+      return baseHandler({ currentEscrow: escrow, ledgerEntries: ledger, events: [{ id: 1, job_id: 17, actor_agent_id: null, event_type: 'escrow.funded', description: 'Demo escrow was funded', data: {}, created_at: '2030-05-03T12:00:00+00:00' }] })(url, init)
+    })
     renderEscrow()
 
     expect(await screen.findByText('Persisted escrow record')).toBeInTheDocument()
     expect(screen.getByText('Ledger history')).toBeInTheDocument()
     expect(screen.getByText('Funding')).toBeInTheDocument()
     expect(screen.getByText('Demo escrow was funded')).toBeInTheDocument()
-    expect(screen.getByText(/Escrow is funded. Continue toward execution and submission/)).toBeInTheDocument()
+    expect(screen.getByText(/Escrow is funded. Continue through execution and verification/)).toBeInTheDocument()
     expect(screen.queryByText(/released|settled/i)).not.toBeInTheDocument()
     await waitFor(() => expect(screen.getAllByText(/Job #17/)).not.toHaveLength(0))
+  })
+
+  it('shows and confirms release only when the backend reports settlement eligibility', async () => {
+    const user = userEvent.setup()
+    const requests: string[] = []
+    let currentEscrow: unknown = escrow
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    stubApi((url, init) => {
+      requests.push(`${init?.method ?? 'GET'} ${url}`)
+      if (url.endsWith('/api/v1/jobs/17/execution')) return jsonResponse(settlementReadyExecution)
+      if (url.endsWith('/api/v1/escrows/8/release')) {
+        currentEscrow = { ...escrow, status: 'released', released_at: '2030-05-05T12:00:00+00:00', settled_at: '2030-05-05T12:00:00+00:00', ledger_entries: [...ledger, { ...ledger[0], id: 12, idempotency_key: 'release-key', entry_type: 'release' }] }
+        return jsonResponse(currentEscrow)
+      }
+      return baseHandler({ currentEscrow, ledgerEntries: currentEscrow === escrow ? ledger : [...ledger, { ...ledger[0], id: 12, idempotency_key: 'release-key', entry_type: 'release' }], events: [] })(url, init)
+    })
+    renderEscrow()
+
+    const button = await screen.findByRole('button', { name: 'Release simulated escrow' })
+    await user.click(button)
+
+    expect(window.confirm).toHaveBeenCalledTimes(1)
+    expect(requests.some((request) => request.endsWith('POST http://localhost:8000/api/v1/escrows/8/release'))).toBe(true)
+    expect(await screen.findByText(/simulated release/i)).toBeInTheDocument()
   })
 })

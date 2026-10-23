@@ -5,6 +5,14 @@ from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+DEVELOPMENT_FRONTEND_ORIGINS = (
+    "http://127.0.0.1:5174",
+    "http://localhost:5174",
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
+)
+
+
 class Settings(BaseSettings):
     app_name: str = "Auto Escrow API"
     app_env: str = "development"
@@ -12,7 +20,7 @@ class Settings(BaseSettings):
     # Tests can point the application at an isolated database without changing
     # the normal development URL.  It is selected when APP_ENV=test.
     test_database_url: str | None = None
-    frontend_origin: str = "http://localhost:5173"
+    frontend_origin: str = ""
     # One initial submission plus this many retries is the demo default.  A
     # deployment can lower or raise it without changing the state machine.
     max_submission_retries: int = 2
@@ -53,3 +61,26 @@ def get_database_url(settings: Settings | None = None) -> str:
     if database_url.startswith("postgres://"):
         return database_url.replace("postgres://", "postgresql+psycopg://", 1)
     return database_url
+
+
+def get_frontend_origins(settings: Settings | None = None) -> list[str]:
+    """Return the exact CORS origin allowlist for the current environment.
+
+    ``FRONTEND_ORIGIN`` is comma-separated so deployments can explicitly list
+    more than one frontend origin.  Development also permits the local Vite
+    origins used by this project; production receives no implicit origins.
+    Wildcards are ignored so CORS never becomes an allow-all policy.
+    """
+
+    active_settings = settings or get_settings()
+    configured_origins = [
+        origin
+        for origin in (value.strip() for value in active_settings.frontend_origin.split(","))
+        if origin and origin != "*"
+    ]
+    origins = list(dict.fromkeys(configured_origins))
+
+    if active_settings.app_env.lower() == "development":
+        origins.extend(origin for origin in DEVELOPMENT_FRONTEND_ORIGINS if origin not in origins)
+
+    return origins

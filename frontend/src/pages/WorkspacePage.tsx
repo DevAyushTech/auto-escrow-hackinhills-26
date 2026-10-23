@@ -1,24 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ArrowRight, ArrowUpDown, Bot, BriefcaseBusiness, CalendarClock, CircleDollarSign, FileWarning, LoaderCircle, Search, Settings2, SlidersHorizontal } from 'lucide-react'
-import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { ArrowRight, ArrowUpDown, Bot, BriefcaseBusiness, CalendarClock, CircleDollarSign, LoaderCircle, Search, SlidersHorizontal } from 'lucide-react'
+import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { StatusPill } from '../components/StatusPill'
 import { AgentAvailability, AgentListResponseDto, AgentStatus, AgentSummaryDto, ApiError, api, JobListResponseDto, JobStatus } from '../lib/api'
 import { JobsPage } from './JobsPage'
-
-type WorkspaceConfig = {
-  eyebrow: string
-  title: string
-  body: string
-  icon: typeof Bot
-  action: string
-  to: string
-}
-
-const content: Record<string, WorkspaceConfig> = {
-  '/escrow': { eyebrow: 'Simulated ledger', title: 'Keep the payment state visible.', body: 'Escrow records are attached to individual jobs. Open a job detail page to review its accepted agreement, funding state, append-only ledger, and related audit events.', icon: CircleDollarSign, action: 'Open jobs', to: '/jobs' },
-  '/disputes': { eyebrow: 'Resolution center', title: 'Make exceptions reviewable.', body: 'Persisted dispute records, evidence, and verification checks will appear here when the disputes API is available. No dispute decisions are shown in this workspace yet.', icon: FileWarning, action: 'Return to dashboard', to: '/' },
-  '/settings': { eyebrow: 'Workspace settings', title: 'Know what is connected.', body: 'The API connection indicator in the top bar is backed by a real health request. Dashboard metrics and agents are read from versioned API endpoints when the backend provides them.', icon: Settings2, action: 'View dashboard', to: '/' },
-}
 
 type AgentState =
   | { status: 'loading' }
@@ -93,15 +78,12 @@ function parseId(value: string | null): number | null {
 
 export function WorkspacePage() {
   const { pathname } = useLocation()
-  if (pathname === '/agents') return <AgentsWorkspace />
+  if (pathname === '/agents') return <AgentsWorkspaceRedesigned />
   if (pathname === '/jobs') return <JobsPage />
-
-  const item = content[pathname] ?? content['/settings']
-  const Icon = item.icon
-  return <div className="mx-auto max-w-3xl py-8"><div className="mb-8 inline-flex rounded-2xl border border-line bg-panel p-4 text-accent"><Icon size={28} /></div><p className="text-xs font-bold uppercase tracking-[0.2em] text-accent">{item.eyebrow}</p><h2 className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl">{item.title}</h2><p className="mt-5 max-w-2xl text-base leading-7 text-slate-400">{item.body}</p><div className="mt-8 rounded-2xl border border-dashed border-line bg-panel/70 p-5"><div className="flex gap-3"><Search className="mt-0.5 shrink-0 text-slate-500" size={18} /><div><p className="text-sm font-semibold text-white">{pathname === '/escrow' ? 'Job-level escrow details' : 'Workspace boundary'}</p><p className="mt-2 text-sm leading-6 text-slate-400">{pathname === '/escrow' ? 'No fake records or payment values are shown. Choose a persisted job to inspect its real simulated ledger state.' : 'No fake records or unsupported workflow values are shown in this workspace.'}</p></div></div></div><Link to={item.to} className="mt-8 inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-bold text-ink hover:bg-[#5ee0d9]">{item.action}<ArrowRight size={16} /></Link></div>
+  return <Navigate to="/" replace />
 }
 
-function AgentsWorkspace() {
+export function AgentsWorkspaceLegacy() {
   const [reloadKey, setReloadKey] = useState(0)
   const [state, setState] = useState<AgentState>({ status: 'loading' })
   const [query, setQuery] = useState('')
@@ -208,6 +190,111 @@ function AgentsWorkspace() {
       </section>
     </div>
   )
+}
+
+function AgentsWorkspaceRedesigned() {
+  const [reloadKey, setReloadKey] = useState(0)
+  const [state, setState] = useState<AgentState>({ status: 'loading' })
+  const [query, setQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | AgentStatus>('all')
+  const [availabilityFilter, setAvailabilityFilter] = useState<'all' | AgentAvailability>('all')
+  const [skillFilter, setSkillFilter] = useState('all')
+  const [categoryFilter, setCategoryFilter] = useState('all')
+  const [sort, setSort] = useState<AgentSort>('name')
+
+  useEffect(() => {
+    let active = true
+    setState({ status: 'loading' })
+    api.agents().then((data) => {
+      if (active) setState({ status: 'success', data })
+    }).catch((error: unknown) => {
+      if (active) setState({ status: 'error', message: agentErrorMessage(error) })
+    })
+    return () => { active = false }
+  }, [reloadKey])
+
+  const agents = useMemo(() => state.status === 'success' ? state.data.items : [], [state])
+  const skills = useMemo(() => Array.from(new Set(agents.flatMap((agent) => agent.skills))).sort((a, b) => a.localeCompare(b)), [agents])
+  const categories = useMemo(() => Array.from(new Set(agents.flatMap((agent) => agent.task_categories))).sort((a, b) => a.localeCompare(b)), [agents])
+  const availabilities = useMemo(() => Array.from(new Set(agents.map((agent) => agent.availability))).sort(), [agents])
+  const hasEstimatedCompletion = agents.some((agent) => agent.estimated_completion_minutes !== null)
+  const hasPerformanceStats = agents.some((agent) => performanceValue(agent) !== null)
+  const filteredAgents = useMemo(() => {
+    if (state.status !== 'success') return []
+    const normalizedQuery = query.trim().toLowerCase()
+    const filtered = state.data.items.filter((agent) => {
+      const matchesQuery = !normalizedQuery || [agent.name, agent.description, ...agent.skills, ...agent.task_categories].join(' ').toLowerCase().includes(normalizedQuery)
+      return matchesQuery && (statusFilter === 'all' || agent.status === statusFilter) && (availabilityFilter === 'all' || agent.availability === availabilityFilter) && (skillFilter === 'all' || agent.skills.includes(skillFilter)) && (categoryFilter === 'all' || agent.task_categories.includes(categoryFilter))
+    })
+    return [...filtered].sort((left, right) => {
+      if (sort === 'estimated_completion') {
+        if (left.estimated_completion_minutes === null && right.estimated_completion_minutes !== null) return 1
+        if (left.estimated_completion_minutes !== null && right.estimated_completion_minutes === null) return -1
+        if (left.estimated_completion_minutes !== null && right.estimated_completion_minutes !== null && left.estimated_completion_minutes !== right.estimated_completion_minutes) return left.estimated_completion_minutes - right.estimated_completion_minutes
+      }
+      if (sort === 'performance') {
+        const leftPerformance = performanceValue(left)
+        const rightPerformance = performanceValue(right)
+        if (leftPerformance === null && rightPerformance !== null) return 1
+        if (leftPerformance !== null && rightPerformance === null) return -1
+        if (leftPerformance !== null && rightPerformance !== null && leftPerformance !== rightPerformance) return rightPerformance - leftPerformance
+      }
+      return left.name.localeCompare(right.name)
+    })
+  }, [availabilityFilter, categoryFilter, query, skillFilter, sort, state, statusFilter])
+
+  const clearFilters = () => {
+    setQuery('')
+    setStatusFilter('all')
+    setAvailabilityFilter('all')
+    setSkillFilter('all')
+    setCategoryFilter('all')
+    setSort('name')
+  }
+
+  return <div className="workspace-page agents-page">
+    <section className="workspace-page__intro">
+      <div className="workspace-page__intro-copy">
+        <p className="workspace-page__eyebrow">Agent directory</p>
+        <h2 className="workspace-page__title">Find an agent for the work.</h2>
+        <p className="workspace-page__lead">Search the persisted registry by capability, availability, or task fit. Each profile keeps its source metadata visible so selection stays grounded in what the API returned.</p>
+      </div>
+      <div className="agents-page__signal"><Bot size={20} /><span><strong>Registry view</strong><small>Compare before you commit</small></span></div>
+    </section>
+
+    <section className="workspace-section" aria-labelledby="agent-list-heading">
+      <div className="workspace-section__heading"><div><p className="workspace-section__label">Marketplace</p><h2 id="agent-list-heading">Persisted agent records</h2></div>{state.status === 'success' && <StatusPill tone="neutral">{`${state.data.total} total agents`}</StatusPill>}</div>
+      {state.status === 'loading' && <div className="workspace-panel workspace-panel--padded" aria-label="Loading agents"><div className="state-line"><LoaderCircle className="animate-spin text-electric" size={18} /> Loading persisted agent records…</div><div className="agent-directory agent-directory--loading"><AgentSkeleton /><AgentSkeleton /></div></div>}
+      {state.status === 'error' && <div className="workspace-error" role="alert"><p>Unable to load agent records</p><span>{state.message}</span><button type="button" onClick={() => setReloadKey((value) => value + 1)}>Retry agents request</button></div>}
+      {state.status === 'success' && <>
+        <div className="workspace-toolbar agents-toolbar">
+          <div className="workspace-toolbar__grid agents-toolbar__grid">
+            <label className="workspace-control agents-search"><Search size={17} className="shrink-0 text-slate-500" /><span className="sr-only">Search agents</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, description, skill, or category" aria-label="Search agents" /></label>
+            <AgentFilterSelect label="Filter by skill" value={skillFilter} onChange={setSkillFilter} icon={<SlidersHorizontal size={17} />} options={skills.map((skill) => ({ value: skill, label: skill }))} emptyLabel="All skills" />
+            <AgentFilterSelect label="Filter by task category" value={categoryFilter} onChange={setCategoryFilter} icon={<SlidersHorizontal size={17} />} options={categories.map((category) => ({ value: category, label: category }))} emptyLabel="All task categories" />
+            <AgentFilterSelect label="Filter by availability" value={availabilityFilter} onChange={(value) => setAvailabilityFilter(value as 'all' | AgentAvailability)} icon={<SlidersHorizontal size={17} />} options={availabilities.map((availability) => ({ value: availability, label: availabilityLabels[availability] }))} emptyLabel="All availability" />
+            <AgentFilterSelect label="Filter by status" value={statusFilter} onChange={(value) => setStatusFilter(value as 'all' | AgentStatus)} icon={<SlidersHorizontal size={17} />} options={(['active', 'inactive', 'suspended'] as AgentStatus[]).map((status) => ({ value: status, label: statusLabels[status] }))} emptyLabel="All statuses" />
+            <AgentFilterSelect label="Sort agents" value={sort} onChange={(value) => setSort(value as AgentSort)} icon={<ArrowUpDown size={17} />} options={[{ value: 'name', label: 'Name' }, ...(hasEstimatedCompletion ? [{ value: 'estimated_completion', label: 'Estimated completion' }] : []), ...(hasPerformanceStats ? [{ value: 'performance', label: 'Performance' }] : [])]} emptyLabel="Sort by" />
+          </div>
+          <div className="workspace-toolbar__footer"><p className="results-count" aria-live="polite"><strong>{filteredAgents.length} results</strong> from {state.data.total} total agents</p><button type="button" onClick={clearFilters} disabled={query === '' && statusFilter === 'all' && availabilityFilter === 'all' && skillFilter === 'all' && categoryFilter === 'all' && sort === 'name'} className="text-action">Clear filters</button></div>
+        </div>
+        {state.data.items.length === 0 && <EmptyAgents message="No persisted agents are available yet." detail="The agent registry returned an empty list. Synthetic demo profiles are not invented in the frontend." />}
+        {state.data.items.length > 0 && filteredAgents.length === 0 && <EmptyAgents message="No agents match those filters." detail="Try a different search term or filter, or clear the filters." />}
+        {filteredAgents.length > 0 && <div className="agent-directory">{filteredAgents.map((agent) => <RedesignedAgentCard key={agent.id} agent={agent} />)}</div>}
+      </>}
+    </section>
+  </div>
+}
+
+function AgentFilterSelect({ label, value, onChange, icon, options, emptyLabel }: { label: string; value: string; onChange: (value: string) => void; icon: ReactNode; options: { value: string; label: string }[]; emptyLabel: string }) {
+  return <label className="workspace-control"><span className="shrink-0 text-slate-500" aria-hidden="true">{icon}</span><span className="sr-only">{label}</span><select value={value} onChange={(event) => onChange(event.target.value)} aria-label={label} className="min-w-0 flex-1 bg-transparent text-ink outline-none"><option value="all">{emptyLabel}</option>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+}
+
+function RedesignedAgentCard({ agent }: { agent: AgentSummaryDto }) {
+  const tone = agent.status === 'active' ? 'success' : agent.status === 'suspended' ? 'danger' : 'neutral'
+  const isSynthetic = agent.metadata?.synthetic === true
+  const stats = agent.demo_performance_stats
+  return <article className="agent-card"><div className="agent-card__top"><div className="agent-card__identity"><div className="agent-card__avatar"><Bot size={21} /></div><div className="min-w-0"><h3>{agent.name}</h3><p>{isSynthetic ? <>Synthetic demo profile<span className="sr-only">Synthetic demo</span></> : 'Persisted registry profile'}</p></div></div><div className="agent-card__status"><StatusPill tone={tone}>{statusLabels[agent.status]}</StatusPill><span className="agent-availability">Availability: {availabilityLabels[agent.availability]}</span></div></div><p className="agent-card__description">{agent.description}</p><div className="agent-card__meta"><span>External ID <strong>{agent.external_id}</strong></span><span>{agent.estimated_completion_minutes === null ? 'Completion time not provided' : `${agent.estimated_completion_minutes} minutes`}</span></div><div className="agent-card__columns"><div><p className="agent-card__label">Skills</p>{agent.skills.length > 0 ? <div className="skill-list">{agent.skills.map((skill) => <span key={skill}>{skill}</span>)}</div> : <p className="muted-copy">No skills listed</p>}</div><div><p className="agent-card__label">Task categories</p>{agent.task_categories.length > 0 ? <div className="skill-list skill-list--soft">{agent.task_categories.map((category) => <span key={category}>{category}</span>)}</div> : <p className="muted-copy">No task categories listed</p>}</div></div><div className="agent-card__details"><span>Output formats: <strong>{agent.supported_output_formats.join(', ') || 'Not provided'}</strong></span>{hasDemoStats(stats) && <DemoStats stats={stats} />}</div><div className="agent-card__actions"><Link to={`/agents/${agent.id}`} className="text-action">Inspect profile <ArrowRight size={15} /></Link><Link to={`/jobs?agentId=${agent.id}`} aria-label={`Select ${agent.name} for Job`} className="action-primary">Select for Job <ArrowRight size={15} /></Link></div></article>
 }
 
 function FilterSelect({ label, value, onChange, icon, options, emptyLabel }: { label: string; value: string; onChange: (value: string) => void; icon: ReactNode; options: { value: string; label: string }[]; emptyLabel: string }) {

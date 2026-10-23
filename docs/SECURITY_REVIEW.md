@@ -125,10 +125,10 @@ These gaps remain open and must be addressed before public production use:
 - No authentication, authorization, tenant isolation, or authenticated audit identity.
 - Demo dispute resolution uses a configured shared development/test operator value.
 - Default settings are local-development oriented and default to SQLite.
-- The backend container does not run migrations automatically and has no database readiness endpoint.
+- The backend container does not run migrations automatically; `/api/ready` now provides a database-backed readiness check but does not verify the Alembic head.
 - The checked workspace database may be behind the migration head; use a disposable or explicitly migrated database rather than relying on the local file.
 - No rate limiting, request-size policy for every JSON field, CSRF strategy, structured request logging, monitoring, backups, or incident response controls.
-- CORS is configured for the local frontend origin and should be reviewed before credentialed authentication is introduced.
+- CORS now consumes an exact `FRONTEND_ORIGIN` allowlist, permits the four local Vite origins only in development, and disables credentials because the MVP has no session authentication.
 - Docker base images and backend transitive dependencies are not pinned to immutable digests/lockfile resolution.
 - The production frontend dependency audit is clean after upgrading `react-router-dom` to `7.18.4`. The full development-tool audit still reports 22 issues across the pinned ESLint/Vitest/Vite/PostCSS/Tailwind toolchain; the available forced fix would introduce a Tailwind 4 breaking upgrade and was not applied during this reliability pass.
 - Real custody/payment providers, independent dispute arbitration, and production-grade agent execution are not implemented.
@@ -215,3 +215,32 @@ documentation_link_errors=0
 The full frontend development audit still reports 22 vulnerabilities in the
 development toolchain. The available forced remediation would require breaking
 tool upgrades, including Tailwind 4, so it was not applied during this phase.
+
+## Deployment-preparation follow-up — October 21, 2026
+
+The current workspace was rechecked after the warm editorial UI redesign, release
+eligibility control, exact CORS allowlist, readiness endpoint, and container
+preparation changes:
+
+```text
+make test
+backend: 91 passed, 1 warning; frontend: 57 passed
+
+make -C backend compile
+passed
+
+npm --prefix frontend run typecheck
+passed
+
+npm --prefix frontend run lint
+passed
+
+npm --prefix frontend run build
+passed
+
+APP_ENV=test TEST_DATABASE_URL=sqlite:////tmp/agent-tmp/phase12-final-migrations.sqlite3
+
+The backend health test suite includes allowed/disallowed Origin checks for the
+local Vite origins, exact production-origin parsing, and database readiness success
+and failure behavior. Docker image builds were not run because Docker is not
+installed in the available environment.

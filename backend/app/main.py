@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.health import router as health_router
 from app.api.v1 import router as v1_router
-from app.config import get_settings
+from app.config import get_frontend_origins, get_settings
 
 
 settings = get_settings()
@@ -19,8 +19,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_origin],
-    allow_credentials=True,
+    allow_origins=get_frontend_origins(settings),
+    allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
@@ -35,4 +35,5 @@ def root() -> dict[str, str]:
         "name": settings.app_name,
         "docs": "/docs",
         "health": "/api/health",
+        "readiness": "/api/ready",
     }

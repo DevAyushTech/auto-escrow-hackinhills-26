@@ -35,7 +35,7 @@ function parseId(value: string | undefined): number | null {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
 }
 
-export function DisputesPage() {
+export function LegacyDisputesPage() {
   const [filter, setFilter] = useState<DisputeStatus | 'all'>('all')
   const [state, setState] = useState<LoadState<DisputeDto[]>>({ status: 'loading' })
   const [reloadKey, setReloadKey] = useState(0)
@@ -51,6 +51,39 @@ export function DisputesPage() {
   }, [filter, reloadKey])
 
   return <div className="space-y-8"><section className="rounded-3xl border border-line bg-panel p-6 sm:p-8"><div className="flex flex-wrap items-start justify-between gap-5"><div><p className="text-xs font-bold uppercase tracking-[0.2em] text-accent">Trust and review</p><h2 className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl">Disputes</h2><p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">Review persisted dispute records, evidence, accepted terms, verification results, and demo-operator resolutions. Opening a dispute protects the simulated escrow.</p></div><Gavel className="text-electric" size={30} /></div><div className="mt-6 flex flex-wrap items-center gap-3"><label className="text-sm font-semibold text-slate-300" htmlFor="dispute-status-filter">Filter status</label><select id="dispute-status-filter" value={filter} onChange={(event) => setFilter(event.target.value as DisputeStatus | 'all')} className="rounded-xl border border-line bg-ink/40 px-3 py-2 text-sm text-white outline-none focus:border-electric"><option value="all">All statuses</option>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><button type="button" onClick={() => setReloadKey((value) => value + 1)} className="inline-flex items-center gap-2 rounded-xl border border-line px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-white/[0.05]"><RefreshCw size={15} /> Refresh</button></div></section>{state.status === 'loading' && <LoadingPanel />}{state.status === 'error' && <ErrorPanel message={state.message} retry={() => setReloadKey((value) => value + 1)} />}{state.status === 'success' && <DisputeList disputes={state.data} />}</div>
+}
+
+export function DisputesPage() {
+  const [filter, setFilter] = useState<DisputeStatus | 'all'>('all')
+  const [state, setState] = useState<LoadState<DisputeDto[]>>({ status: 'loading' })
+  const [reloadKey, setReloadKey] = useState(0)
+
+  useEffect(() => {
+    let active = true
+    setState({ status: 'loading' })
+    api.disputes(filter === 'all' ? undefined : filter).then((data) => {
+      if (active) setState({ status: 'success', data })
+    }).catch((error: unknown) => {
+      if (active) setState({ status: 'error', message: errorMessage(error, 'Disputes could not be loaded.') })
+    })
+    return () => { active = false }
+  }, [filter, reloadKey])
+
+  return <div className="workspace-page disputes-page space-y-8">
+    <section className="workspace-page__intro disputes-page__intro">
+      <div className="workspace-page__intro-copy"><p className="workspace-page__eyebrow">Trust and review</p><h2 className="workspace-page__title">Disputes</h2><p className="workspace-page__lead">A focused review queue for persisted evidence, verification outcomes, and demo-operator resolutions. Active disputes protect simulated escrow until the backend records a terminal outcome.</p></div>
+      <div className="disputes-page__mark"><Gavel size={23} /><span><strong>Review queue</strong><small>Backend-authorized outcomes only</small></span></div>
+    </section>
+    <section className="disputes-page__filters workspace-panel workspace-panel--padded"><label className="text-sm font-semibold text-slate-300" htmlFor="dispute-status-filter">Filter status<select id="dispute-status-filter" value={filter} onChange={(event) => setFilter(event.target.value as DisputeStatus | 'all')} className="workspace-control mt-2"><option value="all">All statuses</option>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><button type="button" onClick={() => setReloadKey((value) => value + 1)} className="action-secondary"><RefreshCw size={15} /> Refresh</button></section>
+    {state.status === 'loading' && <LoadingPanel />}
+    {state.status === 'error' && <ErrorPanel message={state.message} retry={() => setReloadKey((value) => value + 1)} />}
+    {state.status === 'success' && <RedesignedDisputeList disputes={state.data} />}
+  </div>
+}
+
+function RedesignedDisputeList({ disputes }: { disputes: DisputeDto[] }) {
+  if (disputes.length === 0) return <div className="workspace-empty"><Gavel className="mx-auto text-slate-600" size={28} /><h3>No disputes match this filter</h3><p>Disputes are created from funded work and remain visible here after resolution.</p></div>
+  return <div className="dispute-directory">{disputes.map((dispute) => <Link key={dispute.id} to={`/disputes/${dispute.id}`} className="dispute-row"><div><p className="dispute-row__id">Dispute #{dispute.id}</p><h3>Job #{dispute.job_id} · {categoryLabels[dispute.category]}</h3><p>{dispute.description}</p></div><div className="dispute-row__meta"><StatusPill tone={statusTone(dispute.status)}>{statusLabels[dispute.status]}</StatusPill><span>Escrow #{dispute.escrow_id ?? '—'}</span><span>Raised by agent #{dispute.raised_by_agent_id}</span><span>{formatDate(dispute.created_at)}</span>{dispute.resolution && <strong>Resolution: {dispute.resolution}</strong>}</div></Link>)}</div>
 }
 
 function DisputeList({ disputes }: { disputes: DisputeDto[] }) {

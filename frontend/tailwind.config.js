@@ -4,14 +4,18 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: '#0b1220',
-        panel: '#111b2d',
-        line: '#24334c',
-        accent: '#35c6c0',
-        electric: '#69a8ff',
+        ivory: '#f7fbff',
+        forest: '#0b2545',
+        sage: '#a8c5dc',
+        ink: '#0b2545',
+        panel: '#ffffff',
+        line: '#dce6f0',
+        accent: '#0b2545',
+        electric: '#2167c5',
+        'blue-dark': '#2167c5',
       },
       boxShadow: {
-        soft: '0 16px 40px rgba(2, 8, 23, 0.28)',
+        soft: '0 18px 48px rgba(11, 37, 69, 0.10)',
       },
     },
   },

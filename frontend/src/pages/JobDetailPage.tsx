@@ -15,6 +15,8 @@ type RelatedState<T> =
   | { status: 'empty' }
   | { status: 'error'; message: string }
 
+type LoadedRelatedState<T> = Exclude<RelatedState<T>, { status: 'empty' }>
+
 const jobStatusLabels: Record<JobStatus, string> = {
   open: 'Open',
   assigned: 'Assigned',
@@ -56,7 +58,7 @@ export function JobDetailPage() {
   const [relatedReloadKey, setRelatedReloadKey] = useState(0)
   const [agreement, setAgreement] = useState<RelatedState<AgreementDto>>({ status: 'loading' })
   const [escrow, setEscrow] = useState<RelatedState<EscrowDto>>({ status: 'loading' })
-  const [execution, setExecution] = useState<RelatedState<ExecutionDto>>({ status: 'loading' })
+  const [execution, setExecution] = useState<LoadedRelatedState<ExecutionDto>>({ status: 'loading' })
   const [disputes, setDisputes] = useState<RelatedState<DisputeDto[]>>({ status: 'loading' })
   const [events, setEvents] = useState<RelatedState<JobEventDto[]>>({ status: 'loading' })
 
@@ -93,10 +95,16 @@ export function JobDetailPage() {
   }, [jobId, relatedReloadKey])
 
   const backToJobs = legacyAgentId === null ? '/jobs' : `/jobs?agentId=${legacyAgentId}`
-  return <div className="space-y-8"><Link to={backToJobs} className="inline-flex items-center gap-2 text-sm font-semibold text-electric hover:text-white"><ArrowLeft size={16} /> Back to jobs</Link>{state.status === 'loading' && <LoadingPanel />}{state.status === 'error' && <ErrorPanel message={state.message} notFound={state.notFound} backToJobs={backToJobs} />}{state.status === 'success' && <JobDetails job={state.data} legacyAgentId={legacyAgentId} selectionConfirmed={selectionConfirmed} created={created} agreement={agreement} escrow={escrow} execution={execution} disputes={disputes} events={events} retryRelated={() => setRelatedReloadKey((value) => value + 1)} />}</div>
+  return <div className="workspace-page job-detail-page space-y-8"><Link to={backToJobs} className="inline-flex items-center gap-2 text-sm font-semibold text-electric hover:text-white"><ArrowLeft size={16} /> Back to jobs</Link>{state.status === 'loading' && <LoadingPanel />}{state.status === 'error' && <ErrorPanel message={state.message} notFound={state.notFound} backToJobs={backToJobs} />}{state.status === 'success' && <JobDetails job={state.data} legacyAgentId={legacyAgentId} selectionConfirmed={selectionConfirmed} created={created} agreement={agreement} escrow={escrow} execution={execution} disputes={disputes} events={events} retryRelated={() => setRelatedReloadKey((value) => value + 1)} />}</div>
 }
 
-function JobDetails({ job, legacyAgentId, selectionConfirmed, created, agreement, escrow, execution, disputes, events, retryRelated }: { job: JobDetailDto; legacyAgentId: number | null; selectionConfirmed: boolean; created: boolean; agreement: RelatedState<AgreementDto>; escrow: RelatedState<EscrowDto>; execution: RelatedState<ExecutionDto>; disputes: RelatedState<DisputeDto[]>; events: RelatedState<JobEventDto[]>; retryRelated: () => void }) {
+type JobDetailsProps = { job: JobDetailDto; legacyAgentId: number | null; selectionConfirmed: boolean; created: boolean; agreement: RelatedState<AgreementDto>; escrow: RelatedState<EscrowDto>; execution: LoadedRelatedState<ExecutionDto>; disputes: RelatedState<DisputeDto[]>; events: RelatedState<JobEventDto[]>; retryRelated: () => void }
+
+function JobDetails(props: JobDetailsProps) {
+  return <><WorkflowNextSteps job={props.job} agreement={props.agreement} escrow={props.escrow} execution={props.execution} /><JobDetailsContent {...props} /></>
+}
+
+function JobDetailsContent({ job, legacyAgentId, selectionConfirmed, created, agreement, escrow, execution, disputes, events, retryRelated }: JobDetailsProps) {
   const tone = job.status === 'completed' ? 'success' : job.status === 'disputed' || job.status === 'cancelled' ? 'danger' : job.status === 'in_progress' || job.status === 'under_review' ? 'warning' : 'neutral'
   const selectedAgentId = job.selected_agent_id
   return <>
@@ -105,7 +113,58 @@ function JobDetails({ job, legacyAgentId, selectionConfirmed, created, agreement
   </>
 }
 
-function ExecutionSummary({ state, jobId, retry }: { state: RelatedState<ExecutionDto>; jobId: number; retry: () => void }) {
+type WorkflowStatus = 'loading' | 'complete' | 'current' | 'upcoming' | 'unavailable' | 'error'
+type WorkflowItem = { label: string; title: string; detail: string; status: WorkflowStatus; to: string | null }
+
+function WorkflowNextSteps({ job, agreement, escrow, execution }: { job: JobDetailDto; agreement: RelatedState<AgreementDto>; escrow: RelatedState<EscrowDto>; execution: LoadedRelatedState<ExecutionDto> }) {
+  const matching: WorkflowItem = job.selected_agent_id !== null
+    ? { label: 'Matching', title: 'Agent selection is persisted', detail: `Agent #${job.selected_agent_id} is attached to this job.`, status: 'complete', to: `/jobs/${job.id}/matching` }
+    : job.status === 'open'
+      ? { label: 'Matching', title: 'Run matching', detail: 'Begin the matching run before drafting terms.', status: 'current', to: `/jobs/${job.id}/matching` }
+      : { label: 'Matching', title: 'Matching is not available', detail: `The loaded job is ${jobStatusLabels[job.status].toLowerCase()} and has no persisted selected agent.`, status: 'unavailable', to: null }
+
+  const agreementStep: WorkflowItem = agreement.status === 'loading'
+    ? { label: 'Agreement', title: 'Loading agreement state', detail: 'Waiting for the persisted agreement response.', status: 'loading', to: null }
+    : agreement.status === 'error'
+      ? { label: 'Agreement', title: 'Agreement state unavailable', detail: agreement.message, status: 'error', to: `/jobs/${job.id}/agreement` }
+      : agreement.status === 'success' && agreement.data.status === 'accepted'
+        ? { label: 'Agreement', title: 'Agreement accepted', detail: 'Terms are frozen and can support the escrow step.', status: 'complete', to: `/jobs/${job.id}/agreement` }
+        : agreement.status === 'success'
+          ? { label: 'Agreement', title: 'Review agreement terms', detail: `The persisted agreement is ${agreement.data.status.replaceAll('_', ' ')}.`, status: 'current', to: `/jobs/${job.id}/agreement` }
+          : job.selected_agent_id !== null
+            ? { label: 'Agreement', title: 'Create an agreement proposal', detail: 'An agent is selected; define and persist the terms next.', status: 'current', to: `/jobs/${job.id}/agreement` }
+            : { label: 'Agreement', title: 'Agreement waits for matching', detail: 'Select an agent before proposing terms.', status: 'upcoming', to: null }
+
+  const escrowStep: WorkflowItem = escrow.status === 'loading'
+    ? { label: 'Escrow', title: 'Loading escrow state', detail: 'Waiting for the persisted escrow response.', status: 'loading', to: null }
+    : escrow.status === 'error'
+      ? { label: 'Escrow', title: 'Escrow state unavailable', detail: escrow.message, status: 'error', to: `/jobs/${job.id}/escrow` }
+      : escrow.status === 'success' && escrow.data.status === 'pending'
+        ? { label: 'Escrow', title: 'Complete escrow funding', detail: 'A pending escrow record exists and remains unfunded.', status: 'current', to: `/jobs/${job.id}/escrow` }
+        : escrow.status === 'success'
+          ? { label: 'Escrow', title: `Escrow is ${escrow.data.status}`, detail: 'The current ledger and protection state are persisted.', status: 'complete', to: `/jobs/${job.id}/escrow` }
+          : agreement.status === 'success' && agreement.data.status === 'accepted'
+            ? { label: 'Escrow', title: 'Fund simulated escrow', detail: 'The accepted agreement makes the funding workspace available.', status: 'current', to: `/jobs/${job.id}/escrow` }
+            : { label: 'Escrow', title: 'Escrow waits for acceptance', detail: 'An accepted agreement is required before funding.', status: 'upcoming', to: null }
+
+  const executionStep: WorkflowItem = execution.status === 'loading'
+    ? { label: 'Execution', title: 'Loading execution state', detail: 'Waiting for backend execution eligibility.', status: 'loading', to: null }
+    : execution.status === 'error'
+      ? { label: 'Execution', title: 'Execution state unavailable', detail: execution.message, status: 'error', to: `/jobs/${job.id}/execution` }
+      : execution.data.execution_status === 'completed' || execution.data.execution_status === 'settlement_ready'
+        ? { label: 'Execution', title: 'Execution and verification complete', detail: execution.data.execution_status === 'settlement_ready' ? 'Verification passed; settlement remains a separate guarded action.' : 'The backend marked execution complete.', status: 'complete', to: `/jobs/${job.id}/execution` }
+        : { label: 'Execution', title: execution.data.can_start ? 'Start execution' : execution.data.can_submit ? 'Submit work output' : execution.data.can_verify ? 'Verify latest submission' : 'Review execution state', detail: execution.data.can_start ? execution.data.start_reason : execution.data.can_submit ? execution.data.submit_reason : execution.data.can_verify ? execution.data.verify_reason : execution.data.execution_status.replaceAll('_', ' '), status: 'current', to: `/jobs/${job.id}/execution` }
+
+  return <section className="rounded-2xl border border-accent/20 bg-accent/5 p-5 sm:p-6" aria-labelledby="workflow-next-steps-heading"><div className="mb-5 flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-accent">Workflow map</p><h2 id="workflow-next-steps-heading" className="mt-1 text-lg font-bold text-white">Next steps from loaded state</h2></div><p className="text-xs text-slate-500">Every link below opens an existing API-backed workspace.</p></div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4"><WorkflowCard item={matching} /><WorkflowCard item={agreementStep} /><WorkflowCard item={escrowStep} /><WorkflowCard item={executionStep} /></div></section>
+}
+
+function WorkflowCard({ item }: { item: WorkflowItem }) {
+  const statusLabel = item.status === 'complete' ? 'Complete' : item.status === 'current' ? 'Next' : item.status === 'loading' ? 'Loading' : item.status === 'error' ? 'Unavailable' : item.status === 'unavailable' ? 'Not available' : 'Upcoming'
+  const content = <><div className="flex items-start justify-between gap-3"><p className="text-xs font-bold uppercase tracking-[0.12em] text-accent">{item.label}</p><span className="rounded-full border border-line bg-panel px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">{statusLabel}</span></div><h3 className="mt-4 text-sm font-bold text-white">{item.title}</h3><p className="mt-2 text-xs leading-5 text-slate-500">{item.detail}</p>{item.to && item.status !== 'loading' && item.status !== 'unavailable' && <span className="mt-4 inline-flex text-xs font-bold text-electric">Open workspace <ArrowRight size={13} className="ml-1" /></span>}</>
+  return item.to && item.status !== 'loading' && item.status !== 'unavailable' ? <Link to={item.to} className="rounded-xl border border-line bg-panel/80 p-4 transition hover:border-electric/40 hover:bg-panel">{content}</Link> : <div className="rounded-xl border border-line bg-panel/60 p-4">{content}</div>
+}
+
+function ExecutionSummary({ state, jobId, retry }: { state: LoadedRelatedState<ExecutionDto>; jobId: number; retry: () => void }) {
   return <section className="rounded-2xl border border-line bg-panel p-5 sm:p-6"><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-accent">Execution</p><h3 className="mt-1 font-bold text-white">Backend execution state</h3></div>{state.status === 'loading' && <LoaderCircle className="animate-spin text-electric" size={17} />}{state.status === 'success' && <StatusPill tone={state.data.execution_status === 'settlement_ready' || state.data.execution_status === 'completed' ? 'success' : state.data.execution_status === 'blocked' || state.data.execution_status === 'manual_review' ? 'danger' : 'warning'}>{state.data.execution_status.replaceAll('_', ' ')}</StatusPill>}</div>{state.status === 'loading' && <p className="mt-4 text-sm text-slate-500">Loading execution eligibility…</p>}{state.status === 'error' && <RelatedError message={state.message} retry={retry} />}{state.status === 'success' && <><p className="mt-4 text-sm leading-6 text-slate-400">{state.data.execution_status === 'settlement_ready' ? 'Verification passed and the funded escrow is eligible for a separate settlement action.' : state.data.start_reason}</p><Link to={`/jobs/${jobId}/execution`} className="mt-4 inline-flex items-center gap-2 rounded-xl border border-electric/30 px-4 py-2.5 text-sm font-bold text-electric hover:bg-electric/10">Open execution workspace <ArrowRight size={16} /></Link></>}</section>
 }
 

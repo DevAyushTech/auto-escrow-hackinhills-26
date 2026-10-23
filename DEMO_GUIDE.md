@@ -24,7 +24,7 @@ py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r backend\requirements.txt
 Set-Location backend
-Copy-Item .env.example .env -ErrorAction SilentlyContinue
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 python -m alembic upgrade head
 python -m app.seed --with-jobs
 python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
@@ -34,8 +34,8 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 ```powershell
 Set-Location frontend
-Copy-Item .env.example .env -ErrorAction SilentlyContinue
-npm install
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+npm ci
 npm run dev
 ```
 
@@ -86,7 +86,7 @@ with evidence:
 
 16. Run **Verify latest submission**. Explain that the verifier loads the accepted agreement from the database and does not accept a client-claimed pass.
 17. Show the passing checks, `completed` job state, and settlement-ready status.
-18. Open escrow and release through the permitted settlement action if the current page/workflow exposes it. Confirm the ledger contains funding and release entries and the audit history contains the corresponding events.
+18. Return to escrow. When the backend reports settlement eligibility, use **Release simulated escrow**, confirm the consequence, and verify the persisted released state, funding/release ledger entries, and corresponding audit history.
 
 The passing verification itself does not release funds. Verification makes the escrow eligible; the escrow service performs the separate release operation.
 

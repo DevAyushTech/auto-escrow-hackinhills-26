@@ -858,8 +858,33 @@ function parseMatchingFormula(value: unknown): MatchingScoringFormulaDto | undef
     budget: matchingNumber(value, ['budget', 'budget_weight', 'budget_match', 'budget_match_weight']),
   }
   return formula.skills !== undefined && formula.category !== undefined && formula.availability_deadline !== undefined && formula.budget !== undefined
-    ? formula as MatchingScoringFormulaDto
+    ? normalizeMatchingFormula(formula as MatchingScoringFormulaDto)
     : undefined
+}
+
+/** Matching services may persist weights as normalized fractions or as points. */
+function normalizeMatchingFormula(formula: MatchingScoringFormulaDto): MatchingScoringFormulaDto {
+  const values = Object.values(formula)
+  if (!values.some((value) => value > 0) || !values.every((value) => value >= 0 && value <= 1)) return formula
+  const total = values.reduce((sum, value) => sum + value, 0)
+  if (total <= 0) return formula
+  return {
+    skills: (formula.skills / total) * 100,
+    category: (formula.category / total) * 100,
+    availability_deadline: (formula.availability_deadline / total) * 100,
+    budget: (formula.budget / total) * 100,
+  }
+}
+
+function normalizeMatchingCompatibility(compatibility: MatchingCompatibilityDto): MatchingCompatibilityDto {
+  const values = Object.values(compatibility)
+  if (!values.some((value) => value > 0) || !values.every((value) => value >= 0 && value <= 1)) return compatibility
+  return {
+    skills: compatibility.skills * 100,
+    category: compatibility.category * 100,
+    availability_deadline: compatibility.availability_deadline * 100,
+    budget: compatibility.budget * 100,
+  }
 }
 
 function matchingAgentReference(value: unknown, fallbackId?: unknown, fallbackName?: unknown): { id: number; name: string; external_id: string | null } | undefined {
@@ -896,7 +921,7 @@ function parseMatchingCompatibility(value: unknown): MatchingCompatibilityDto | 
     budget: component(['budget', 'budget_score', 'budget_match', 'budget_match_score']),
   }
   return compatibility.skills !== undefined && compatibility.category !== undefined && compatibility.availability_deadline !== undefined && compatibility.budget !== undefined
-    ? compatibility as MatchingCompatibilityDto
+    ? normalizeMatchingCompatibility(compatibility as MatchingCompatibilityDto)
     : undefined
 }
 
@@ -907,7 +932,8 @@ function parseMatchingCandidate(value: unknown): MatchingCandidateDto | undefine
   const matchedSkills = value.matched_skills ?? value.skills_matched
   const missingSkills = value.missing_skills ?? value.skills_missing
   const warnings = value.warnings ?? []
-  const score = numericValue(value.score ?? value.total_score)
+  const rawScore = numericValue(value.score ?? value.total_score)
+  const score = rawScore !== undefined && rawScore >= 0 && rawScore <= 1 ? rawScore * 100 : rawScore
   const explanation = value.explanation ?? value.reason
   if (!agent || !requiredNumber(score) || !requiredStringArray(matchedSkills) || !requiredStringArray(missingSkills) || !compatibility || !requiredString(explanation) || !requiredStringArray(warnings)) return undefined
   return {
@@ -1015,6 +1041,8 @@ export const api = {
   cancelAgreement: (agreementId: number) => request<unknown>(`/api/v1/agreements/${agreementId}/cancel`, { method: 'POST' }).then(parseAgreement),
   jobEscrow: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/escrow`).then((payload) => payload === undefined ? null : parseEscrow(payload)),
   fundDemoEscrow: (jobId: number, idempotencyKey?: string) => request<unknown>(`/api/v1/jobs/${jobId}/escrow/fund`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(idempotencyKey ? { idempotency_key: idempotencyKey } : {}) }).then(parseEscrow),
+  releaseEscrow: (escrowId: number) => request<unknown>(`/api/v1/escrows/${escrowId}/release`, { method: 'POST' }).then(parseEscrow),
+  refundEscrow: (escrowId: number) => request<unknown>(`/api/v1/escrows/${escrowId}/refund`, { method: 'POST' }).then(parseEscrow),
   escrowLedger: (escrowId: number) => request<unknown>(`/api/v1/escrows/${escrowId}/ledger`).then(parseLedger),
   jobEvents: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/events`).then(parseJobEvents),
   dashboardExecution: () => request<unknown>('/api/v1/dashboard/execution').then(parseDashboardExecution),

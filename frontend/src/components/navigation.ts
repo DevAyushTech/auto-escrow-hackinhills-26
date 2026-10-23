@@ -9,5 +9,5 @@ export const primaryNavigation = [
 ] as const
 
 export const secondaryNavigation = [
-  { label: 'Configuration', to: '/settings', icon: Settings2 },
+  { label: 'Settings', to: '/settings', icon: Settings2 },
 ] as const
