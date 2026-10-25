@@ -13,7 +13,7 @@ Keep real `.env` files private. The repository examples are safe templates only.
 | `FRONTEND_ORIGIN` | Server config | `http://localhost:5173` | Exact HTTPS origin, comma-separated only when necessary. No wildcard. |
 | `MAX_SUBMISSION_RETRIES` | Server config | `2` | Keep a bounded deliberate value. |
 | `DEMO_PUBLIC_ENABLED` | Server config | `false` | `true` only for a restricted synthetic public demo. |
-| `DEMO_SEED_ENABLED` | Server config | `false` | Reserved flag; startup never seeds production data. Keep `false`. |
+| `DEMO_SEED_ENABLED` | Server config | `false` | Gate for the explicit CLI production seed only. Public session bootstrap safely creates synthetic agents when the registry is empty. |
 | `DEMO_SESSION_TTL_MINUTES` | Server config | `120` | Expiring anonymous sandbox token lifetime. |
 | `DEMO_MAX_JOBS_PER_SESSION` | Server config | `3` | Per-session resource cap. |
 | `DEMO_RATE_LIMIT_PER_MINUTE` | Server config | `120` | In-process per-client request limit; use provider edge protection too. |

@@ -165,11 +165,13 @@ python -m app.seed --with-jobs
 
 The seed is idempotent and allowed only when `APP_ENV` is `development` or
 `test`. It creates six synthetic agents and optional synthetic jobs. It never
-resets a database. Hosted production should use a controlled, one-time seed or
-manual synthetic data step—not startup seeding. For an explicitly approved
-hosted synthetic demo, set `DEMO_SEED_ENABLED=true` temporarily and run
-`python -m app.seed --allow-production-demo` from a controlled release shell,
-without `--with-jobs`; then disable the flag.
+resets a database. A public session bootstrap also ensures the six deterministic
+synthetic agent profiles exist when the public registry has no synthetic agent;
+that path creates no jobs, never updates non-synthetic rows, and is safe to call
+when multiple visitors arrive together. `DEMO_SEED_ENABLED` remains a gate for
+the explicit CLI production seed (`python -m app.seed --allow-production-demo`)
+when an operator deliberately wants to pre-populate agents; it is not required
+for public session bootstrap and must never be used to create visitor jobs.
 
 ## Public demo safety
 
@@ -205,7 +207,9 @@ Run Alembic explicitly before serving traffic. Do not use the default SQLite
 file on an ephemeral host filesystem. Set the frontend's `VITE_API_BASE_URL` to
 the deployed API URL before building, set `VITE_DEMO_PUBLIC_ENABLED=true` only
 when the backend public-demo flag is enabled, and set the backend
-`FRONTEND_ORIGIN` to the exact deployed frontend origin.
+`FRONTEND_ORIGIN` to the exact deployed frontend origin. The first public demo
+session safely creates the deterministic synthetic agent registry if the hosted
+database has no synthetic agents; it does not create jobs or touch private rows.
 
 See:
 

@@ -105,4 +105,26 @@ describe('GuidedDemoPage', () => {
     expect(jobRequest?.init?.headers).toMatchObject({ 'X-Demo-Session': 'demo-session-token' })
     await waitFor(() => expect(requests.some((request) => request.url.endsWith('/api/v1/jobs/17/matches'))).toBe(true))
   })
+
+  it('offers a fresh sandbox when the stored session has expired', async () => {
+    window.localStorage.setItem('auto-escrow-demo-session', JSON.stringify(session))
+    let agentRequests = 0
+    const replacementSession = { ...session, session_token: 'replacement-session-token' }
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/api/v1/agents')) {
+        agentRequests += 1
+        if (agentRequests === 1) return Promise.resolve(jsonResponse({ detail: 'demo session is invalid or expired' }, 401))
+        return Promise.resolve(jsonResponse({ items: [agent], total: 1 }))
+      }
+      if (url.endsWith('/api/demo/session') && init?.method === 'POST') return Promise.resolve(jsonResponse(replacementSession))
+      return Promise.resolve(jsonResponse({}, 404))
+    }))
+
+    renderDemo()
+    expect(await screen.findByText('Demo connection problem')).toBeInTheDocument()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Start a fresh sandbox' }))
+    expect(await screen.findByRole('heading', { name: 'Start with the capability, not the promise.' })).toBeInTheDocument()
+    expect(screen.getByText('Synthetic Reviewer')).toBeInTheDocument()
+  })
 })

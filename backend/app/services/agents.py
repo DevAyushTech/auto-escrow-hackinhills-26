@@ -34,3 +34,12 @@ def list_agents(
 
 def get_agent(db: Session, agent_id: int) -> Agent | None:
     return db.get(Agent, agent_id)
+
+
+def agent_is_visible(db: Session, agent_id: int) -> bool:
+    """Return whether an agent may be referenced by this request scope."""
+
+    query = select(Agent.id).where(Agent.id == agent_id)
+    if synthetic_only(db):
+        query = query.where(Agent.metadata_json["synthetic"].as_boolean() == True)  # noqa: E712
+    return db.scalar(query) is not None

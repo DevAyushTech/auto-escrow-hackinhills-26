@@ -14,6 +14,7 @@ from app.job_states import InvalidJobTransition
 from app.models import Agent, Agreement, Job, Submission
 from app.schemas import SubmissionCreate
 from app.services.audit import record_event
+from app.services.agents import agent_is_visible
 from app.services.jobs import transition_job
 from app.services.verification import latest_verification
 
@@ -78,7 +79,7 @@ def create_submission(db: Session, job_id: int, payload: SubmissionCreate) -> Su
         if agent_id != expected_agent_id or agent_id != agreement.executor_agent_id:
             raise SubmissionAgentMismatchError("submission agent must match the accepted executor agent")
         agent = db.get(Agent, agent_id)
-        if agent is None:
+        if agent is None or not agent_is_visible(db, agent.id):
             raise SubmissionAgentRequiredError("submission agent not found")
 
         latest_version = db.scalar(

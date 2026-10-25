@@ -146,11 +146,13 @@ def reset_demo_session(db: Session, session: DemoSession) -> DemoSessionToken:
     if job_ids:
         submission_ids = [row[0] for row in db.execute(select(Submission.id).where(Submission.job_id.in_(job_ids))).all()]
         escrow_ids = [row[0] for row in db.execute(select(Escrow.id).where(Escrow.job_id.in_(job_ids))).all()]
+        # Disputes reference submissions and verifications, so remove them
+        # before deleting either side of those relationships.
+        db.execute(delete(Dispute).where(Dispute.job_id.in_(job_ids)))
         if submission_ids:
             db.execute(delete(Verification).where(Verification.submission_id.in_(submission_ids)))
         if escrow_ids:
             db.execute(delete(LedgerEntry).where(LedgerEntry.escrow_id.in_(escrow_ids)))
-        db.execute(delete(Dispute).where(Dispute.job_id.in_(job_ids)))
         db.execute(delete(Submission).where(Submission.job_id.in_(job_ids)))
         db.execute(delete(AuditEvent).where(AuditEvent.job_id.in_(job_ids)))
         db.execute(delete(MatchResult).where(MatchResult.job_id.in_(job_ids)))

@@ -11,6 +11,7 @@ from app.demo_sessions import (
     session_from_header,
 )
 from app.schemas import DemoSessionResponse
+from app.seed import ensure_demo_agents_if_empty
 
 
 router = APIRouter(prefix="/api/demo", tags=["demo"])
@@ -30,6 +31,10 @@ def _response(token_data) -> DemoSessionResponse:
 
 @router.post("/session", response_model=DemoSessionResponse, summary="Start an isolated synthetic demo session")
 def start_demo_session(db: Session = Depends(get_db)) -> DemoSessionResponse:
+    from app.config import get_settings
+
+    if get_settings().demo_public_enabled:
+        ensure_demo_agents_if_empty(db)
     return _response(create_demo_session(db))
 
 

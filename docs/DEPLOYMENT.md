@@ -129,6 +129,20 @@ This value is intentionally public because the browser must know where the API
 is. It must contain only the HTTPS API origin; never put database credentials or
 operator values in it.
 
+If the included `frontend/Dockerfile` is used instead of a provider-managed
+static build, pass both values as build arguments because Vite compiles them into
+the bundle:
+
+```bash
+docker build \
+  --build-arg VITE_API_BASE_URL=https://<backend-service>.onrender.com \
+  --build-arg VITE_DEMO_PUBLIC_ENABLED=true \
+  -t auto-escrow-frontend frontend
+```
+
+Changing runtime container environment variables after the Vite build does not
+rewrite the already-generated browser bundle.
+
 After the frontend service has its final URL, update the backend's exact
 `FRONTEND_ORIGIN` to that origin with no path and no trailing slash. Redeploy the
 backend after changing CORS.
@@ -139,18 +153,16 @@ backend after changing CORS.
 2. Create backend web service.
 3. Add backend variables and confirm the migration/pre-deploy result.
 4. Check `/api/ready`.
-5. Temporarily set `DEMO_SEED_ENABLED=true`, then run the controlled
-   synthetic-agent seed once from the
-   backend release shell: `python -m app.seed --allow-production-demo`. Do not
-   pass `--with-jobs`; visitor jobs must be session-scoped. Then set
-   `DEMO_SEED_ENABLED=false` and redeploy/restart.
-6. Create the frontend static site with `VITE_API_BASE_URL` and
+5. Create the frontend static site with `VITE_API_BASE_URL` and
    `VITE_DEMO_PUBLIC_ENABLED`.
-7. Open the frontend URL from the Render service page.
-8. Start the guided demo and confirm `POST /api/demo/session` succeeds.
-9. Return to backend Environment and confirm `FRONTEND_ORIGIN` exactly matches
+6. Open the frontend URL from the Render service page.
+7. Start the guided demo and confirm `POST /api/demo/session` succeeds and
+   `GET /api/v1/agents` returns synthetic profiles. If the registry was empty,
+   this first public session creates the six deterministic profiles only once;
+   it does not create jobs or modify non-synthetic rows.
+8. Return to backend Environment and confirm `FRONTEND_ORIGIN` exactly matches
    the browser origin.
-10. Redeploy both services after any final environment changes.
+9. Redeploy both services after any final environment changes.
 
 Render assigns each web service an `onrender.com` URL. Do not write that URL into
 documentation or share it until the service exists and the post-deployment
@@ -171,11 +183,14 @@ logs or a controlled shell with `python -m alembic current`.
 
 ### Synthetic agents
 
-The normal seed command is refused when `APP_ENV=production`. For this bounded
-synthetic demo, the explicit production-safe path requires
-`DEMO_SEED_ENABLED=true` plus `python -m app.seed --allow-production-demo` from
-a controlled release shell. Run it without `--with-jobs`, then disable the flag.
-Do not run any other seed command against the hosted production database.
+The normal seed command is refused when `APP_ENV=production`. Public session
+bootstrap automatically ensures the six deterministic synthetic agents exist
+when the registry contains no synthetic agent. It uses unique external IDs,
+creates no visitor jobs, and does not update non-synthetic rows. An operator may
+still use the explicit production-safe CLI path with `DEMO_SEED_ENABLED=true`
+and `python -m app.seed --allow-production-demo` from a controlled release shell;
+run it without `--with-jobs`, then disable the flag. Do not run any other seed
+command against the hosted production database.
 
 ### Redeploy and rollback
 
@@ -222,8 +237,9 @@ In a browser:
 - **Readiness 503:** inspect `DATABASE_URL`, network access, and migration logs.
 - **Frontend points to localhost:** rebuild the frontend after setting
   `VITE_API_BASE_URL`; browser variables are compiled at build time.
-- **No agents:** hosted production does not auto-seed. Populate synthetic data
-  through a controlled non-startup process.
+- **No agents:** start a new public demo session after confirming migrations and
+  `DEMO_PUBLIC_ENABLED=true`; the session bootstrap creates the synthetic agent
+  registry when no synthetic profile exists. It never creates visitor jobs.
 - **Session 401:** the token expired, was reset, or was copied incorrectly. Start
   a new sandbox rather than bypassing the header.
 

@@ -1067,17 +1067,15 @@ export const api = {
   },
 
   async reviewDispute(disputeId: number, rationale?: string, token?: string): Promise<DisputeDto> {
-    const sessionToken = token ?? readStoredSession()?.session_token
-    return normalizeDispute(await rawRequest<unknown>(
+    return normalizeDispute(await request<unknown>(
       `/api/v1/disputes/${disputeId}/review`,
-      { ...withJsonBody(rationale ? { rationale } : {}), headers: { 'X-Demo-Operator': DEMO_PUBLIC_ENABLED && sessionToken ? 'demo-session' : 'demo-operator' } },
-      sessionToken,
+      { ...withJsonBody(rationale ? { rationale } : {}), headers: { 'X-Demo-Operator': DEMO_PUBLIC_ENABLED ? 'demo-session' : 'demo-operator' } },
+      token,
     ))
   },
 
   async resolveDispute(disputeId: number, resolution: DisputeResolution, rationale: string, token?: string): Promise<DisputeDto> {
-    const sessionToken = token ?? readStoredSession()?.session_token
-    const result = await rawRequest<unknown>(`/api/v1/disputes/${disputeId}/resolve`, { ...withJsonBody({ resolution, rationale }), headers: { 'X-Demo-Operator': DEMO_PUBLIC_ENABLED && sessionToken ? 'demo-session' : 'demo-operator' } }, sessionToken)
+    const result = await request<unknown>(`/api/v1/disputes/${disputeId}/resolve`, { ...withJsonBody({ resolution, rationale }), headers: { 'X-Demo-Operator': DEMO_PUBLIC_ENABLED ? 'demo-session' : 'demo-operator' } }, token)
     return normalizeDispute(result)
   },
 }

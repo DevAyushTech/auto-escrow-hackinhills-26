@@ -6,9 +6,10 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.job_states import INITIAL_JOB_STATUS, validate_transition
-from app.models import Agent, Job
+from app.models import Job
 from app.demo_sessions import current_demo_session_id, get_scoped_job, scope_job_query
 from app.schemas import JobCreate
+from app.services.agents import agent_is_visible
 from app.services.audit import record_event
 
 
@@ -109,4 +110,4 @@ def list_jobs(
 
 
 def agent_exists(db: Session, agent_id: int) -> bool:
-    return db.scalar(select(Agent.id).where(Agent.id == agent_id)) is not None
+    return agent_is_visible(db, agent_id)

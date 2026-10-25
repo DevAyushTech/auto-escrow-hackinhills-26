@@ -31,6 +31,7 @@ from app.schemas import (
     MAX_JOB_DEADLINE_HORIZON,
 )
 from app.services.audit import record_event
+from app.services.agents import agent_is_visible
 from app.services.jobs import transition_job
 
 
@@ -185,7 +186,7 @@ def _validate_job_for_create(db: Session, job_id: int) -> tuple[Job, Agent]:
     if job.selected_agent_id is None:
         raise SelectedAgentRequiredError("job must have a selected agent before proposing an agreement")
     agent = db.get(Agent, job.selected_agent_id)
-    if agent is None:
+    if agent is None or not agent_is_visible(db, agent.id):
         raise SelectedAgentNotFoundError("selected agent not found")
     return job, agent
 

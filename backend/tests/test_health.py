@@ -89,3 +89,32 @@ def test_readiness_endpoint_returns_service_unavailable_when_database_query_fail
         "service": "auto-escrow-api",
         "database": "unavailable",
     }
+
+
+def test_readiness_endpoint_returns_service_unavailable_when_current_schema_is_missing(client) -> None:
+    class SchemaMissingSession:
+        calls = 0
+
+        def execute(self, _statement):
+            self.calls += 1
+            if self.calls == 1:
+                class SelectOneResult:
+                    def scalar_one(self):
+                        return 1
+
+                return SelectOneResult()
+            raise SQLAlchemyError("demo session schema is missing")
+
+    def schema_missing_db():
+        yield SchemaMissingSession()
+
+    app.dependency_overrides[get_db] = schema_missing_db
+
+    response = client.get("/api/ready")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "status": "not_ready",
+        "service": "auto-escrow-api",
+        "database": "unavailable",
+    }

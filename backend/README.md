@@ -87,16 +87,23 @@ python -m app.seed --with-jobs
 
 The command is repeatable and does not reset existing records. Seed records are marked as synthetic demo data in their metadata. It refuses to run unless `APP_ENV` is `development` or `test`; never point it at a production database.
 
-For a deliberately controlled hosted synthetic demo, set
-`DEMO_SEED_ENABLED=true` temporarily and run the explicit production command
-from the backend release shell:
+When `DEMO_PUBLIC_ENABLED=true`, `POST /api/demo/session` also checks the
+synthetic registry. If no synthetic agent exists, it inserts the six deterministic
+agent profiles using conflict-safe external IDs. It creates no jobs, does not
+update non-synthetic rows, and does not repeat inserts for every API request.
+
+For a deliberately controlled hosted synthetic demo, the public session
+bootstrap is sufficient. If an operator intentionally wants to pre-populate
+agents before the first visitor, set `DEMO_SEED_ENABLED=true` temporarily and
+run the explicit production command from the backend release shell:
 
 ```powershell
 python -m app.seed --allow-production-demo
 ```
 
 Do not add `--with-jobs` to a public deployment; public visitors create their
-own session-scoped jobs. Disable `DEMO_SEED_ENABLED` again after the seed step.
+own session-scoped jobs. Disable `DEMO_SEED_ENABLED` again after the optional
+seed step.
 
 ## Run
 

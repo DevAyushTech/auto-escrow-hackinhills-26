@@ -21,6 +21,7 @@ from app.job_states import InvalidJobTransition
 from app.models import Agent, AuditEvent, Dispute, Escrow, Job, Submission, Verification
 from app.schemas import DisputeCreate, DisputeResolveRequest, DisputeReviewRequest
 from app.services.audit import record_event
+from app.services.agents import agent_is_visible
 from app.services.escrow import refund_escrow, release_escrow
 from app.services.jobs import transition_job
 from app.services.verification import latest_submission, latest_verification
@@ -168,7 +169,7 @@ def create_dispute(db: Session, job_id: int, payload: DisputeCreate) -> Dispute:
         if _active_dispute(db, job.id, escrow.id) is not None:
             raise DisputeStateConflictError("an unresolved dispute already exists for this job and escrow")
         actor = db.get(Agent, payload.raised_by_agent_id)
-        if actor is None:
+        if actor is None or not agent_is_visible(db, actor.id):
             raise DisputeActorNotAllowedError("dispute actor agent not found")
         related_agents = {job.requester_agent_id, job.selected_agent_id, job.executor_agent_id}
         if actor.id not in related_agents:

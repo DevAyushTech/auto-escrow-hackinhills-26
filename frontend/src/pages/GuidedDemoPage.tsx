@@ -212,7 +212,19 @@ export function GuidedDemoPage() {
     try {
       await action()
     } catch (requestError) {
-      setError(errorText(requestError))
+      if (requestError instanceof ApiError && requestError.status === 401) {
+        clearStoredDemoSession()
+        storeJobId(null)
+        persistStep(1)
+        setSession(null)
+        setData(null)
+        setSelectedAgentId(null)
+        setStep(1)
+        setSessionState('error')
+        setSessionError('Your sandbox session expired or was reset. Start a fresh sandbox to continue.')
+      } else {
+        setError(errorText(requestError))
+      }
     } finally {
       setBusy(false)
     }

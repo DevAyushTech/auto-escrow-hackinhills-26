@@ -32,8 +32,10 @@ page loads”.
 
 - [ ] `DATABASE_URL` points to persistent PostgreSQL with TLS/backups.
 - [ ] Migration `0011_demo_sessions` is applied before traffic is enabled.
-- [ ] No startup reset or destructive migration is configured. Any production
-  synthetic-agent seed used a one-time explicit release command and the seed
+- [ ] No startup reset or destructive migration is configured. Public session
+  bootstrap may create the deterministic synthetic agent registry only when no
+  synthetic agent exists; it creates no jobs and never updates non-synthetic
+  rows. Any optional production CLI seed used a controlled command and the seed
   flag was disabled afterward.
 - [ ] `.env` files, local databases, virtual environments, `node_modules`, and
   `dist` output are excluded from publication.

@@ -12,6 +12,7 @@ from app.demo_sessions import get_scoped_job, scope_job_query
 from app.models import Agent, Agreement, AuditEvent, Dispute, Escrow, Job, Submission, Verification
 from app.schemas import ExecutionResponse
 from app.services.audit import record_event
+from app.services.agents import agent_is_visible
 from app.services.jobs import transition_job
 from app.services.verification import latest_submission, verification_for_submission
 
@@ -96,7 +97,7 @@ def _prerequisites(
     if selected_agent_id is None:
         return False, "A selected executor agent is required before execution can start.", None
     agent = db.get(Agent, selected_agent_id)
-    if agent is None:
+    if agent is None or not agent_is_visible(db, agent.id):
         return False, "The selected executor agent no longer exists.", selected_agent_id
     if agreement.executor_agent_id != selected_agent_id:
         return False, "The selected agent does not match the accepted agreement executor.", selected_agent_id

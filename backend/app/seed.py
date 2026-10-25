@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.config import get_settings
@@ -135,6 +136,52 @@ DEMO_JOBS = (
 )
 
 
+def ensure_demo_agents_if_empty(db: Session) -> int:
+    """Ensure a public sandbox has synthetic agents without touching other data.
+
+    Public session bootstrap calls this only when no synthetic agent exists. The
+    deterministic external IDs and dialect-native conflict handling make the
+    operation safe when two visitors arrive at an empty database together.
+    Existing rows are never updated or reclassified by this path.
+    """
+
+    synthetic_filter = Agent.metadata_json["synthetic"].as_boolean() == True  # noqa: E712
+    if db.scalar(select(Agent.id).where(synthetic_filter).limit(1)) is not None:
+        return 0
+
+    external_ids = [values["external_id"] for values in DEMO_AGENTS]
+    existing_rows = list(
+        db.scalars(select(Agent).where(Agent.external_id.in_(external_ids))).all()
+    )
+    non_synthetic_collision = next(
+        (agent.external_id for agent in existing_rows if not bool((agent.metadata_json or {}).get("synthetic"))),
+        None,
+    )
+    if non_synthetic_collision is not None:
+        raise RuntimeError(
+            f"refusing to reserve synthetic demo key already used by a non-synthetic agent: {non_synthetic_collision}"
+        )
+    existing_ids = {agent.external_id for agent in existing_rows}
+    missing = [values for values in DEMO_AGENTS if values["external_id"] not in existing_ids]
+    if not missing:
+        return 0
+
+    dialect_name = db.get_bind().dialect.name
+    if dialect_name == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert
+    elif dialect_name == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert
+    else:
+        db.add_all(Agent(**values) for values in missing)
+        db.flush()
+        return len(missing)
+
+    statement = insert(Agent).values(missing).on_conflict_do_nothing(index_elements=[Agent.external_id])
+    db.execute(statement)
+    db.flush()
+    return len(missing)
+
+
 def seed_demo_data(*, with_jobs: bool = False, allow_production: bool = False) -> dict[str, int]:
     """Insert demo rows if their deterministic keys are not present."""
 
@@ -160,6 +207,10 @@ def seed_demo_data(*, with_jobs: bool = False, allow_production: bool = False) -
                 created_agents += 1
                 db.flush()
             else:
+                if not bool((agent.metadata_json or {}).get("synthetic")):
+                    raise RuntimeError(
+                        f"refusing to overwrite non-synthetic agent with external_id={values['external_id']!r}"
+                    )
                 # Existing deterministic rows are upgraded with the explicit
                 # contract fields without creating duplicates.
                 for field in (
