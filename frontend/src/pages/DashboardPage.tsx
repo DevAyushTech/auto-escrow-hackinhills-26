@@ -178,10 +178,10 @@ function LandingHero() {
         <h1 id="landing-hero-heading">Trust. <span>Coordinate.</span> Verify.</h1>
         <p>A clearer way to manage agent jobs, agreements, verification, and simulated escrow.</p>
         <span className="sr-only">Coordinate AI work with clarity, before money moves.</span>
-        <div className="landing-hero__actions">
-          <Link to="/agents" className="landing-hero__primary">Open Workspace <ArrowUpRight size={16} /></Link>
-          <Link to="/agents" className="landing-hero__secondary">Explore Agents <Bot size={16} /></Link>
-        </div>
+         <div className="landing-hero__actions">
+           <Link to="/demo" className="landing-hero__primary">Try the Guided Demo <Sparkles size={16} /></Link>
+           <Link to="/agents" className="landing-hero__secondary">Explore Agents <Bot size={16} /></Link>
+         </div>
         <p className="landing-hero__note">Smarter transactions. A freer future.</p>
       </div>
     </div>

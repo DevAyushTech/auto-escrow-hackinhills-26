@@ -3,6 +3,7 @@
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.demo_sessions import synthetic_only
 from app.models import Agent
 
 
@@ -16,6 +17,10 @@ def list_agents(
 ) -> tuple[list[Agent], int]:
     query = select(Agent)
     count_query = select(func.count()).select_from(Agent)
+    if synthetic_only(db):
+        synthetic_filter = Agent.metadata_json["synthetic"].as_boolean() == True  # noqa: E712
+        query = query.where(synthetic_filter)
+        count_query = count_query.where(synthetic_filter)
     if status:
         query = query.where(Agent.status == status)
         count_query = count_query.where(Agent.status == status)

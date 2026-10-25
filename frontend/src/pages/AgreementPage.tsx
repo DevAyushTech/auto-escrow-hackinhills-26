@@ -287,7 +287,7 @@ export function AgreementPage() {
     if (!result.payload) return
     setActionLoading('submit_revision')
     try {
-       const agreement = await api.submitAgreementRevision(state.agreement.id, omitUnchangedDeadline(result.payload, state.agreement.proposed_deadline) as SubmitAgreementRevisionPayload)
+       const agreement = await api.submitAgreementRevision(state.agreement.id, { ...omitUnchangedDeadline(result.payload, state.agreement.proposed_deadline), action: 'submit_revision' } as SubmitAgreementRevisionPayload)
       applyAgreement(agreement, 'Revised agreement terms submitted and persisted.', 'submit_revision')
     } catch (error: unknown) {
       setActionLoading(null)

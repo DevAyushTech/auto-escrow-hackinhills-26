@@ -86,6 +86,23 @@ class Agent(Base):
     match_results: Mapped[list["MatchResult"]] = relationship(back_populates="agent")
 
 
+class DemoSession(Base):
+    """Opaque, expiring sandbox credential for the public synthetic demo."""
+
+    __tablename__ = "demo_sessions"
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uq_demo_sessions_token_hash"),
+        Index("ix_demo_sessions_expires_at", "expires_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    jobs: Mapped[list["Job"]] = relationship(back_populates="demo_session")
+
+
 class Job(Base):
     __tablename__ = "jobs"
     __table_args__ = (
@@ -97,12 +114,16 @@ class Job(Base):
         CheckConstraint("currency IN ('USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD')", name="ck_jobs_currency"),
         UniqueConstraint("public_id", name="uq_jobs_public_id"),
         Index("ix_jobs_status_deadline", "status", "deadline"),
+        Index("ix_jobs_demo_session_id", "demo_session_id"),
         Index("ix_jobs_requester_agent_id", "requester_agent_id"),
         Index("ix_jobs_selected_agent_id", "selected_agent_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     public_id: Mapped[str] = mapped_column(String(80), nullable=False, default=lambda: f"job-{uuid4().hex}")
+    # Nullable for local development and legacy rows. Public demo writes always
+    # populate this server-side from the validated demo-session token.
+    demo_session_id: Mapped[int | None] = mapped_column(ForeignKey("demo_sessions.id"))
     # Legacy associations remain optional. Job creation is independent of an
     # Agent record; selected_agent_id is the explicit current association.
     requester_agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id"))
@@ -128,6 +149,7 @@ class Job(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
 
     requester: Mapped[Agent | None] = relationship(back_populates="requested_jobs", foreign_keys=[requester_agent_id])
+    demo_session: Mapped[DemoSession | None] = relationship(back_populates="jobs")
     executor: Mapped[Agent | None] = relationship(back_populates="assigned_jobs", foreign_keys=[executor_agent_id])
     selected_agent: Mapped[Agent | None] = relationship(
         back_populates="selected_jobs", foreign_keys=[selected_agent_id]
@@ -413,6 +435,7 @@ __all__ = [
     "Agreement",
     "AuditEvent",
     "Base",
+    "DemoSession",
     "Dispute",
     "Escrow",
     "Job",

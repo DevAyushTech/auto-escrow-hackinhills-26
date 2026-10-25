@@ -8,11 +8,11 @@ verification, and disputes. The FastAPI backend is authoritative for persisted
 state, lifecycle transitions, verification results, ledger effects, and audit
 events.
 
-There is no production authentication, tenant isolation, real payment custody,
-wallet, blockchain transaction, independent arbitration, or external agent
-runtime. The default database is local SQLite. PostgreSQL URLs are supported at
-the SQLAlchemy connection layer, but the repository does not provision or
-operate a production PostgreSQL deployment.
+There is no production account authentication, real payment custody, wallet,
+blockchain transaction, independent arbitration, or external agent runtime. The
+default database is local SQLite. PostgreSQL URLs are supported at the SQLAlchemy
+connection layer, but the repository does not provision or operate a production
+PostgreSQL deployment.
 
 ## Repository structure
 
@@ -29,18 +29,18 @@ AutoEscrow/
 │   │   ├── schemas.py            # Pydantic contracts and validation
 │   │   ├── seed.py              # Development/test synthetic seed
 │   │   └── main.py              # FastAPI app and CORS
-│   ├── migrations/              # Alembic history through revision 0010
+│   ├── migrations/              # Alembic history through revision 0011
 │   ├── tests/                   # Isolated API/service tests
 │   ├── Dockerfile
 │   ├── Makefile
 │   └── requirements.txt
 ├── frontend/
-│   ├── src/components/          # Shell, navigation, status controls
-│   ├── src/pages/               # Workflow pages and recovery page
-│   ├── src/lib/api.ts           # Timeout-aware typed API client/parsers
-│   ├── src/*.test.tsx           # Vitest/Testing Library suites
-│   ├── Dockerfile               # Static Nginx image
-│   ├── nginx.conf               # SPA history fallback
+│   ├── src/main.tsx             # Vite entry point
+│   ├── src/App.tsx              # Active React Router route table
+│   ├── src/pages/               # Active workspace pages and guided demo
+│   ├── src/lib/api.ts           # Typed API client and session header handling
+│   ├── tests/                   # Node API contract smoke tests
+│   ├── .env.example
 │   └── package.json
 ├── docs/
 ├── DEMO_GUIDE.md
@@ -52,19 +52,19 @@ AutoEscrow/
 
 ## Runtime request flow
 
-1. The browser loads the React/Vite application from `http://localhost:5173`.
-2. `App.tsx` installs the React Router route tree under `AppShell`.
-3. `AppShell` checks `/api/health`, renders navigation, and provides a stable
-   main content target and route-aware title.
-4. Workflow pages call the shared `frontend/src/lib/api.ts` client.
-5. The client uses a five-second request timeout, checks expected HTTP status
-   where needed, and validates canonical response shapes before rendering.
-6. FastAPI route handlers validate request/response contracts and delegate
+1. The browser loads the Vite SPA and the guided route at `/demo`.
+2. `GuidedDemoPage` restores or creates an expiring demo session and active job
+   context from browser storage.
+3. Guided-demo components call `frontend/src/lib/api.ts` with the
+   `X-Demo-Session` header.
+4. The API dependency validates the server-issued session and binds its numeric
+   scope to the request database session.
+5. FastAPI route handlers validate request/response contracts and delegate
    lifecycle work to backend services.
-7. Services load and mutate SQLAlchemy models inside transaction boundaries,
+6. Services load and mutate SQLAlchemy models inside transaction boundaries,
    apply centralized state-machine rules, record audit events, and commit or
    roll back as one unit.
-8. The frontend refreshes persisted records after consequential operations; it
+7. The frontend refreshes persisted records after consequential operations; it
    does not infer success from a button click or request submission alone.
 
 ## Persistence model
@@ -96,9 +96,8 @@ Important relationships:
   agent where available, and timestamp.
 
 Alembic manages the schema. The current migration head is
-`0010_harden_ledger_idempotency`, which backfills null ledger idempotency keys
-and makes the migrated column non-nullable. Application startup does not create
-or reset tables.
+`0011_demo_sessions`, which adds expiring demo-session digests and nullable job
+ownership. Application startup does not create or reset tables.
 
 ## Lifecycle state machines
 
@@ -238,19 +237,18 @@ resolution requests are rejected.
 
 ## Frontend responsibilities
 
-The frontend includes routes for dashboard, agents, jobs, matching, agreements,
-escrow, execution, disputes, settings information, and a not-found recovery
-page. It provides loading, empty, error, retry, confirmation, duplicate-action,
-and missing-resource states. It uses the backend API client and response
-parsers rather than hardcoded lifecycle data.
-
-The top-level `/escrow` and `/settings` pages are honest information/placeholder
-workspaces. Actual escrow details are job-scoped at `/jobs/:jobId/escrow`.
+The frontend retains the existing workspace routes and adds the real guided demo
+at `/demo`. The dashboard, agent directory, and guided demo use persisted API
+data and show loading, empty, error, retry, confirmation, duplicate-action, and
+missing-resource states. Legacy workspace routes remain for navigation
+compatibility and must not be presented as real blockchain or payment-provider
+screens.
 
 ## Security and deployment limitations
 
-- There is no production authentication, authorization, or tenant/resource
-  isolation.
+- There is no production account authentication, role system, or tenant model.
+- Public demo mode adds expiring anonymous session isolation for job-linked
+  records, but it is not a substitute for authenticated production tenancy.
 - The `X-Demo-Operator` header is a development/test-only shared boundary, not
   authentication or independent arbitration.
 - Evidence and submitted output are participant-provided data and are not

@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.demo_sessions import scope_job_query
 from app.job_states import InvalidJobTransition
 from app.models import Agent, Agreement, Job, Submission
 from app.schemas import SubmissionCreate
@@ -61,7 +62,8 @@ def list_submissions(db: Session, job_id: int) -> list[Submission]:
 
 def create_submission(db: Session, job_id: int, payload: SubmissionCreate) -> Submission:
     try:
-        job = db.scalar(select(Job).where(Job.id == job_id).with_for_update())
+        job_query = select(Job).where(Job.id == job_id).with_for_update()
+        job = db.scalar(scope_job_query(db, job_query))
         if job is None:
             raise SubmissionJobNotFoundError("job not found")
         agreement = db.scalar(select(Agreement).where(Agreement.job_id == job.id))

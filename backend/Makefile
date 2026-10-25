@@ -1,6 +1,6 @@
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python)
 
-.PHONY: install test run migrate migrate-down seed compile
+.PHONY: install test run migrate migrate-down seed compile migration-check
 
 install:
 	$(PYTHON) -m pip install -r requirements.txt
@@ -22,3 +22,11 @@ seed:
 
 compile:
 	PYTHONPATH=. $(PYTHON) -m compileall -q app migrations tests
+
+migration-check:
+	@set -e; db_path=$$(mktemp -u /tmp/auto-escrow-migrations.XXXXXX.sqlite3); \
+	APP_ENV=test TEST_DATABASE_URL=sqlite:////$$db_path PYTHONPATH=. $(PYTHON) -m alembic upgrade head; \
+	APP_ENV=test TEST_DATABASE_URL=sqlite:////$$db_path PYTHONPATH=. $(PYTHON) -m alembic downgrade base; \
+	APP_ENV=test TEST_DATABASE_URL=sqlite:////$$db_path PYTHONPATH=. $(PYTHON) -m alembic upgrade head; \
+	APP_ENV=test TEST_DATABASE_URL=sqlite:////$$db_path PYTHONPATH=. $(PYTHON) -m alembic current; \
+	rm -f $$db_path

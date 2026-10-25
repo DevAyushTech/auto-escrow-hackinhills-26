@@ -22,13 +22,17 @@ def test_health_endpoint_reports_api_is_available() -> None:
 @pytest.mark.parametrize(
     "origin",
     [
+        "http://127.0.0.1:3000",
+        "http://localhost:3000",
+        "http://127.0.0.1:3001",
+        "http://localhost:3001",
         "http://127.0.0.1:5174",
         "http://localhost:5174",
         "http://127.0.0.1:5173",
         "http://localhost:5173",
     ],
 )
-def test_cors_allows_each_local_vite_origin_without_credentials(client, origin: str) -> None:
+def test_cors_allows_each_local_frontend_origin_without_credentials(client, origin: str) -> None:
     response = client.get("/api/health", headers={"Origin": origin})
 
     assert response.status_code == 200

@@ -8,6 +8,7 @@ from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
 from app.job_states import InvalidJobTransition
+from app.demo_sessions import get_scoped_job, scope_job_query
 from app.models import Agent, Agreement, AuditEvent, Dispute, Escrow, Job, Submission, Verification
 from app.schemas import ExecutionResponse
 from app.services.audit import record_event
@@ -50,7 +51,7 @@ def is_settlement_eligible(db: Session, job_id: int) -> bool:
             Dispute.status.in_(("open", "under_review")),
         )
     )
-    return db.scalar(
+    eligible_query = (
         select(Job.id)
         .join(Escrow, Escrow.job_id == Job.id)
         .join(Submission, Submission.job_id == Job.id)
@@ -64,7 +65,8 @@ def is_settlement_eligible(db: Session, job_id: int) -> bool:
             ~unresolved_dispute,
         )
         .limit(1)
-    ) is not None
+    )
+    return db.scalar(scope_job_query(db, eligible_query)) is not None
 
 
 def _started_at(db: Session, job_id: int) -> datetime | None:
@@ -132,7 +134,7 @@ def _execution_status(db: Session, job: Job, can_start: bool, latest: Submission
 
 
 def get_execution(db: Session, job_id: int) -> ExecutionResponse:
-    job = db.get(Job, job_id)
+    job = get_scoped_job(db, job_id)
     if job is None:
         raise ExecutionJobNotFoundError("job not found")
     agreement = db.scalar(select(Agreement).where(Agreement.job_id == job.id))
@@ -186,7 +188,8 @@ def get_execution(db: Session, job_id: int) -> ExecutionResponse:
 
 def start_execution(db: Session, job_id: int) -> ExecutionResponse:
     try:
-        job = db.scalar(select(Job).where(Job.id == job_id).with_for_update())
+        job_query = select(Job).where(Job.id == job_id).with_for_update()
+        job = db.scalar(scope_job_query(db, job_query))
         if job is None:
             raise ExecutionJobNotFoundError("job not found")
         agreement = db.scalar(select(Agreement).where(Agreement.job_id == job.id).with_for_update())

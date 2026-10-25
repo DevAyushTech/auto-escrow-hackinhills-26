@@ -6,6 +6,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 DEVELOPMENT_FRONTEND_ORIGINS = (
+    "http://127.0.0.1:3000",
+    "http://localhost:3000",
+    "http://127.0.0.1:3001",
+    "http://localhost:3001",
     "http://127.0.0.1:5174",
     "http://localhost:5174",
     "http://127.0.0.1:5173",
@@ -25,6 +29,16 @@ class Settings(BaseSettings):
     # deployment can lower or raise it without changing the state machine.
     max_submission_retries: int = 2
     demo_resolution_operator: str = "demo-operator"
+    # Public demo access is opt-in.  When enabled, every /api/v1 request must
+    # carry a server-issued X-Demo-Session token and all mutable records are
+    # scoped to that session.
+    demo_public_enabled: bool = False
+    demo_seed_enabled: bool = False
+    demo_session_ttl_minutes: int = 120
+    demo_max_jobs_per_session: int = 3
+    demo_rate_limit_per_minute: int = 120
+    demo_session_create_limit_per_hour: int = 10
+    demo_max_request_bytes: int = 300_000
 
     model_config = SettingsConfigDict(
         env_file=".env",

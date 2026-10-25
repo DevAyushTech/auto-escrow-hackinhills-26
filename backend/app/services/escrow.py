@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.escrow_states import InvalidEscrowTransition, transition_escrow
+from app.demo_sessions import get_scoped_job, scope_job_query
 from app.models import (
     Agreement,
     Dispute,
@@ -96,19 +97,23 @@ def _money(value: Decimal | None) -> Decimal:
 
 
 def get_escrow(db: Session, escrow_id: int) -> Escrow | None:
-    return db.scalar(
+    query = (
         select(Escrow)
         .options(selectinload(Escrow.ledger_entries))
+        .join(Job, Escrow.job_id == Job.id)
         .where(Escrow.id == escrow_id)
     )
+    return db.scalar(scope_job_query(db, query))
 
 
 def get_job_escrow(db: Session, job_id: int) -> Escrow | None:
-    return db.scalar(
+    query = (
         select(Escrow)
         .options(selectinload(Escrow.ledger_entries))
+        .join(Job, Escrow.job_id == Job.id)
         .where(Escrow.job_id == job_id)
     )
+    return db.scalar(scope_job_query(db, query))
 
 
 def get_ledger_entries(db: Session, escrow_id: int) -> list[LedgerEntry]:
@@ -145,7 +150,8 @@ def remaining_refundable_balance(
 
 
 def _require_funding_prerequisites(db: Session, job_id: int) -> tuple[Job, Agreement, Decimal, str]:
-    job = db.scalar(select(Job).where(Job.id == job_id).with_for_update())
+    job_query = select(Job).where(Job.id == job_id).with_for_update()
+    job = db.scalar(scope_job_query(db, job_query))
     if job is None:
         raise JobNotFoundForEscrowError("job not found")
 
@@ -420,7 +426,7 @@ def _verification_is_complete(db: Session, job_id: int) -> bool:
         )
         .limit(1)
     )
-    job = db.get(Job, job_id)
+    job = get_scoped_job(db, job_id)
     return verification_id is not None and job is not None and job.status == "completed"
 
 
@@ -455,10 +461,17 @@ def _settle_escrow(
     rollback_on_error: bool = True,
 ) -> Escrow:
     try:
-        escrow = db.scalar(select(Escrow).where(Escrow.id == escrow_id).with_for_update())
+        escrow_query = (
+            select(Escrow)
+            .join(Job, Escrow.job_id == Job.id)
+            .where(Escrow.id == escrow_id)
+            .with_for_update()
+        )
+        escrow = db.scalar(scope_job_query(db, escrow_query))
         if escrow is None:
             raise EscrowNotFoundError("escrow not found")
-        job = db.scalar(select(Job).where(Job.id == escrow.job_id).with_for_update())
+        job_query = select(Job).where(Job.id == escrow.job_id).with_for_update()
+        job = db.scalar(scope_job_query(db, job_query))
         if job is None:
             raise JobNotFoundForEscrowError("job not found")
         _terminal_conflict(escrow)

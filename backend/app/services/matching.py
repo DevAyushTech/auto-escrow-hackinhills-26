@@ -32,6 +32,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.job_states import is_open_for_matching
+from app.demo_sessions import scope_job_query, synthetic_only
 from app.models import Agent, Job, MatchResult, utc_now
 from app.services.audit import record_event
 
@@ -412,7 +413,10 @@ def compute_and_persist_matches(
             f"job state {job.status!r} does not permit matching; only 'open' jobs are eligible."
         )
     computed_at = now or utc_now()
-    agents = list(db.scalars(select(Agent).order_by(Agent.id.asc(), Agent.name.asc())).all())
+    agents_query = select(Agent)
+    if synthetic_only(db):
+        agents_query = agents_query.where(Agent.metadata_json["synthetic"].as_boolean() == True)  # noqa: E712
+    agents = list(db.scalars(agents_query.order_by(Agent.id.asc(), Agent.name.asc())).all())
     candidates = rank_candidates(job, agents, now=computed_at, weights=weights)
     run_id, timestamp = persist_match_results(
         db,
@@ -438,7 +442,8 @@ def select_agent_after_revalidation(
     does not create another event.
     """
 
-    job = db.scalar(select(Job).where(Job.id == job_id).with_for_update())
+    job_query = select(Job).where(Job.id == job_id).with_for_update()
+    job = db.scalar(scope_job_query(db, job_query))
     if job is None:
         raise LookupError("job not found")
     if not is_open_for_matching(job.status):
@@ -448,7 +453,9 @@ def select_agent_after_revalidation(
     if job.selected_agent_id is not None:
         if job.selected_agent_id == agent_id:
             existing_agent = db.get(Agent, job.selected_agent_id)
-            if existing_agent is None:
+            if existing_agent is None or (
+                synthetic_only(db) and not bool((existing_agent.metadata_json or {}).get("synthetic"))
+            ):
                 raise AgentNotFoundForSelectionError("selected agent not found")
             existing_candidate = evaluate_candidate(job, existing_agent, now=utc_now())
             if not existing_candidate.eligible:
@@ -472,9 +479,10 @@ def select_agent_after_revalidation(
                         run_id = latest[0]
                     else:
                         computed_at = utc_now()
-                        agents = list(
-                            db.scalars(select(Agent).order_by(Agent.id.asc(), Agent.name.asc())).all()
-                        )
+                        agents_query = select(Agent)
+                        if synthetic_only(db):
+                            agents_query = agents_query.where(Agent.metadata_json["synthetic"].as_boolean() == True)  # noqa: E712
+                        agents = list(db.scalars(agents_query.order_by(Agent.id.asc(), Agent.name.asc())).all())
                         candidates = rank_candidates(job, agents, now=computed_at)
                         run_id, _ = persist_match_results(
                             db,
@@ -508,14 +516,19 @@ def select_agent_after_revalidation(
         raise DifferentAgentAlreadySelectedError("a different agent is already selected for this job")
 
     agent = db.get(Agent, agent_id)
-    if agent is None:
+    if agent is None or (synthetic_only(db) and not bool((agent.metadata_json or {}).get("synthetic"))):
         raise AgentNotFoundForSelectionError("agent not found")
 
     computed_at = utc_now()
-    agents = list(db.scalars(select(Agent).order_by(Agent.id.asc(), Agent.name.asc())).all())
+    agents_query = select(Agent)
+    if synthetic_only(db):
+        agents_query = agents_query.where(Agent.metadata_json["synthetic"].as_boolean() == True)  # noqa: E712
+    agents = list(db.scalars(agents_query.order_by(Agent.id.asc(), Agent.name.asc())).all())
     candidates = rank_candidates(job, agents, now=computed_at)
     candidate_by_id = {candidate.agent_id: candidate for candidate in candidates}
-    candidate = candidate_by_id[agent_id]
+    candidate = candidate_by_id.get(agent_id)
+    if candidate is None:
+        raise AgentNotFoundForSelectionError("agent not found")
     if not candidate.eligible:
         raise AgentIneligibleError(candidate.exclusion_reasons)
 

@@ -1,182 +1,249 @@
-# Auto Escrow deployment guide
+# Manual deployment preparation
 
-**Status:** deployment preparation only. No cloud account, paid service, database, or
-public URL has been provisioned from this workspace.
+**Status:** preparation only. No hosting account, database, public URL, or
+deployment was created by this workspace.
 
-## Recommended architecture
+## Selected architecture: static frontend, API service, database
 
-For a controlled synthetic demo, use two containers behind one HTTPS ingress and a
-persistent PostgreSQL database:
+Use one Render project with:
+
+1. **Frontend:** Vite static site built from `frontend/`.
+2. **Backend:** FastAPI Python web service rooted at `backend/`.
+3. **Database:** persistent managed PostgreSQL.
+
+The active frontend is a Vite SPA. `npm run build` produces `frontend/dist`,
+and the included `frontend/nginx.conf` provides the SPA fallback required for
+direct refreshes such as `/demo` and `/jobs/17`. Use a static-site provider or
+the included Nginx container; do not configure a Next.js `next start` service
+for the active app.
+
+The backend can also be built from `backend/Dockerfile`, but the native Python
+service is simpler because Render can run the migration as an explicit
+pre-deploy command and inject its `$PORT` value.
+
+## Before creating services
+
+1. Publish the repository yourself using the checklist in the root handoff
+   response. Do not publish `.env`, local databases, `.venv`, `node_modules`, or
+   `dist` output.
+2. Create a Render project/environment for the demo.
+3. Create the PostgreSQL database first and copy its **internal** connection
+   string into the backend service. Do not paste it into frontend variables.
+4. Review the current Render compute-plan and billing pages. Render currently
+   documents that free web services spin down after 15 minutes of inactivity and
+   that free Postgres databases expire 30 days after creation. Availability,
+   included usage, database retention, and pricing can change. Do not assume a
+   free plan is suitable for a judge-facing link or persistent database.
+
+## Create the PostgreSQL database
+
+In the Render dashboard:
+
+1. **New → PostgreSQL**.
+2. Select the region nearest the expected judges and the plan you can afford.
+3. Enable the provider's available backups/retention options.
+4. After creation, copy the connection string from the database page.
+5. Keep the database private to the Render project where possible. Use the
+   internal connection string for the backend service.
+
+Do not point a hosted service at `sqlite:///./auto_escrow.db`. A redeploy can
+replace an ephemeral filesystem and lose records.
+
+## Create the backend service
+
+Create **New → Web Service** from the repository.
+
+Recommended fields:
+
+| Field | Value |
+| --- | --- |
+| Root Directory | `backend` |
+| Runtime | Python 3 |
+| Build Command | `pip install -r requirements.txt` |
+| Pre-Deploy Command | `python -m alembic upgrade head` on a paid web service |
+| Start Command | `python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
+| Health Check Path | `/api/ready` |
+| Auto-Deploy | Manual initially, then choose deliberately |
+
+The pre-deploy migration is a controlled schema step. Render documents that
+pre-deploy commands run after build and before deployment, but are available for
+paid web services, private services, and background workers—not free web
+services. If you select a free web service, do not silently skip migrations:
+run the exact command once through an approved provider shell/one-off mechanism
+or from a controlled machine with the same production `DATABASE_URL`, then
+verify the migration head before enabling traffic.
+
+### Backend environment variables
+
+Enter these in the backend service's Environment page:
 
 ```text
-HTTPS ingress
-├── demo.example.com      → frontend Nginx container
-└── api.demo.example.com → FastAPI backend container → managed PostgreSQL
+APP_NAME=Auto Escrow API
+APP_ENV=production
+DATABASE_URL=<Render PostgreSQL connection string>
+FRONTEND_ORIGIN=https://<your-frontend-service>.onrender.com
+DEMO_PUBLIC_ENABLED=true
+DEMO_SEED_ENABLED=false
+DEMO_SESSION_TTL_MINUTES=120
+DEMO_MAX_JOBS_PER_SESSION=3
+DEMO_RATE_LIMIT_PER_MINUTE=120
+DEMO_SESSION_CREATE_LIMIT_PER_HOUR=10
+DEMO_MAX_REQUEST_BYTES=300000
+MAX_SUBMISSION_RETRIES=2
 ```
 
-This keeps the existing React/Vite and FastAPI split, preserves the included SPA
-fallback, and avoids placing SQLite on an ephemeral container filesystem. A single
-container host or platform that supports Docker, private environment variables,
-release commands, health checks, and persistent external databases is suitable.
+Do **not** set `DEMO_RESOLUTION_OPERATOR` as a public security control. In public
+mode, the guided demo sends the `demo-session` operator boundary and the backend
+allows review/resolution only when the dispute belongs to the caller's session.
+This is still not authentication or independent arbitration.
 
-The application is **not safe for unrestricted public writes** yet: it has no real
-authentication, authorization, tenant isolation, rate limiting, or real payment
-custody. Put the demo behind the host's access gate or an invite-only network and
-use synthetic data only.
+After the first deploy, verify:
 
-## Artifacts prepared in this repository
-
-- `backend/Dockerfile` runs Uvicorn on `0.0.0.0:8000`, uses a non-root user, and
-  checks `/api/ready`.
-- `frontend/Dockerfile` accepts the public `VITE_API_BASE_URL` at build time.
-- `frontend/nginx.conf` preserves direct-refresh support for React Router routes.
-- `backend/app/main.py` reads an exact CORS allowlist from `FRONTEND_ORIGIN`.
-- `backend/app/api/health.py` exposes liveness at `/api/health` and database
-  readiness at `/api/ready`.
-- Alembic remains an explicit release step; the backend does not mutate the schema
-  during application startup.
-
-## Required deployment sequence
-
-### 1. Create the external database
-
-Use a persistent PostgreSQL service with TLS, backups, and a database URL supplied
-through the host's secret manager. The current code supports PostgreSQL through
-SQLAlchemy/`psycopg`, but this repository does not provision PostgreSQL or verify a
-specific provider for you.
-
-Do not deploy the default SQLite URL to an ephemeral filesystem.
-
-### 2. Build the backend image
-
-From the repository root:
-
-```bash
-docker build -t auto-escrow-api:review ./backend
+```powershell
+curl.exe -fsS https://<backend-service>.onrender.com/api/health
+curl.exe -fsS https://<backend-service>.onrender.com/api/ready
 ```
 
-The image does not run migrations automatically. That is intentional: migrations
-must be reviewed and run once as a controlled release job against the target
-database.
+The readiness response must be `ready` after migrations. A healthy process with
+an un-migrated database is not deployment success.
 
-### 3. Run the migration release job
+## Create the frontend static site
 
-Run this command using the exact backend image and production environment variables:
+Create a **Static Site** from the same repository, or serve the included
+`frontend/Dockerfile` as a container:
+
+| Field | Value |
+| --- | --- |
+| Root Directory | `frontend` |
+| Build Command | `npm ci && npm run build` |
+| Publish Directory | `dist` |
+
+Set this build-time/public variable before the build:
+
+```text
+VITE_API_BASE_URL=https://<backend-service>.onrender.com
+VITE_DEMO_PUBLIC_ENABLED=true
+```
+
+This value is intentionally public because the browser must know where the API
+is. It must contain only the HTTPS API origin; never put database credentials or
+operator values in it.
+
+After the frontend service has its final URL, update the backend's exact
+`FRONTEND_ORIGIN` to that origin with no path and no trailing slash. Redeploy the
+backend after changing CORS.
+
+## Render dashboard sequence
+
+1. Create PostgreSQL.
+2. Create backend web service.
+3. Add backend variables and confirm the migration/pre-deploy result.
+4. Check `/api/ready`.
+5. Temporarily set `DEMO_SEED_ENABLED=true`, then run the controlled
+   synthetic-agent seed once from the
+   backend release shell: `python -m app.seed --allow-production-demo`. Do not
+   pass `--with-jobs`; visitor jobs must be session-scoped. Then set
+   `DEMO_SEED_ENABLED=false` and redeploy/restart.
+6. Create the frontend static site with `VITE_API_BASE_URL` and
+   `VITE_DEMO_PUBLIC_ENABLED`.
+7. Open the frontend URL from the Render service page.
+8. Start the guided demo and confirm `POST /api/demo/session` succeeds.
+9. Return to backend Environment and confirm `FRONTEND_ORIGIN` exactly matches
+   the browser origin.
+10. Redeploy both services after any final environment changes.
+
+Render assigns each web service an `onrender.com` URL. Do not write that URL into
+documentation or share it until the service exists and the post-deployment
+checks pass.
+
+## Database and persistence operations
+
+### First release
+
+The backend pre-deploy command is:
 
 ```bash
 python -m alembic upgrade head
 ```
 
-The expected migration head is `0010_harden_ledger_idempotency`. Confirm the command
-completes before sending traffic to the new backend image. Never run `downgrade` as
-an automatic rollback against production data.
+The current migration head is `0011_demo_sessions`. Confirm it in the service
+logs or a controlled shell with `python -m alembic current`.
 
-### 4. Build the frontend with the deployed API URL
+### Synthetic agents
 
-The API URL is compiled into the browser bundle and is therefore public. It must be
-the HTTPS backend URL that browsers can reach:
+The normal seed command is refused when `APP_ENV=production`. For this bounded
+synthetic demo, the explicit production-safe path requires
+`DEMO_SEED_ENABLED=true` plus `python -m app.seed --allow-production-demo` from
+a controlled release shell. Run it without `--with-jobs`, then disable the flag.
+Do not run any other seed command against the hosted production database.
 
-```bash
-docker build \
-  --build-arg VITE_API_BASE_URL=https://api.demo.example.com \
-  -t auto-escrow-web:review ./frontend
+### Redeploy and rollback
+
+- A frontend redeploy does not change PostgreSQL data.
+- A backend redeploy does not change data unless the explicit migration step
+  runs.
+- Review migration files before each release; prefer forward fixes to automatic
+  downgrades.
+- If a release fails, keep the database at its current migration level, route
+  traffic to the last known-good compatible service, and preserve logs.
+- Use the managed database provider's backup/restore procedure for data recovery.
+
+## Post-deployment verification
+
+Run from a machine that can reach the services:
+
+```powershell
+curl.exe -fsS https://<backend-service>.onrender.com/api/health
+curl.exe -fsS https://<backend-service>.onrender.com/api/ready
 ```
 
-Do not pass `DATABASE_URL`, operator values, passwords, or any other backend secret
-as a `VITE_*` variable.
+In a browser:
 
-### 5. Configure backend environment variables
+1. Open the frontend root and `/demo`.
+2. Refresh `/demo` directly; it must not return a host 404.
+3. Start a demo session and confirm the browser network request includes the
+   server-issued `X-Demo-Session` header on `/api/v1` calls.
+4. Create a job and confirm it is visible after refresh.
+5. Use a second browser profile to create a second session; confirm the first
+   job is not readable by the second token.
+6. Complete one passing flow and verify that release is a separate action.
+7. Complete one failed-verification flow and confirm release remains blocked.
+8. Create/reset a dispute sandbox and confirm the other session remains intact.
+9. Check the API response `Access-Control-Allow-Origin` is the exact frontend
+   origin, not `*`.
+10. Check service logs for startup errors, migration errors, repeated 401s, and
+    rate-limit responses.
 
-Set these in the backend service's secret/environment configuration:
+## Troubleshooting
 
-```text
-APP_ENV=production
-DATABASE_URL=postgresql+psycopg://<user>:<password>@<host>/<database>
-FRONTEND_ORIGIN=https://demo.example.com
-MAX_SUBMISSION_RETRIES=2
-```
+- **502/port error:** the service must bind to `0.0.0.0` and use `$PORT`.
+- **CORS error:** set the exact frontend origin in backend `FRONTEND_ORIGIN` and
+  redeploy; do not add a wildcard.
+- **Readiness 503:** inspect `DATABASE_URL`, network access, and migration logs.
+- **Frontend points to localhost:** rebuild the frontend after setting
+  `VITE_API_BASE_URL`; browser variables are compiled at build time.
+- **No agents:** hosted production does not auto-seed. Populate synthetic data
+  through a controlled non-startup process.
+- **Session 401:** the token expired, was reset, or was copied incorrectly. Start
+  a new sandbox rather than bypassing the header.
 
-`FRONTEND_ORIGIN` accepts a comma-separated exact allowlist when more than one
-approved frontend origin is required. Use origins only, without a path or trailing
-slash. In production there are no implicit localhost origins and wildcard entries
-are ignored.
+## Current limitations
 
-Do not configure `DEMO_RESOLUTION_OPERATOR` for a public production service. Demo
-operator review is intentionally limited to development/test environments and is
-not authentication or independent arbitration.
+This architecture is a restricted hackathon prototype, not a real financial
+deployment. It does not provide full user authentication, tenant accounts,
+payment custody, independent arbitration, production actor identity, provider
+backups verification from this workspace, or an audited incident-response
+program.
 
-### 6. Configure service health checks
+Also review the current frontend dependency audit before launch. The pinned
+frontend dependency tree reports high/critical advisories. Do not use the
+unrestricted public internet as the threat model until remediation is reviewed.
 
-- Liveness: `GET /api/health`
-- Readiness: `GET /api/ready`
-- Container port: `8000`
-- Frontend container port: `80`
+## Official Render references to re-check before launch
 
-Use `/api/ready` for traffic readiness because it executes a lightweight database
-query. It does not replace migration verification or monitoring.
-
-### 7. Configure HTTPS and SPA routing
-
-Terminate HTTPS at the ingress. Configure the frontend host to serve
-`/index.html` for unknown application paths, equivalent to the included Nginx:
-
-```nginx
-location / {
-    try_files $uri $uri/ /index.html;
-}
-```
-
-The current frontend calls the backend using the compiled absolute URL; the
-included Nginx file does not proxy `/api`.
-
-## Verification after deployment
-
-From a machine that can reach the deployed services:
-
-```bash
-curl -fsS https://api.demo.example.com/api/health
-curl -fsS https://api.demo.example.com/api/ready
-```
-
-In the browser, verify all of the following:
-
-1. The dashboard loads without a CORS error.
-2. A direct refresh of `/jobs`, `/jobs/<id>`, and `/settings` returns the React app.
-3. The settings page reports the intended API base URL and environment disclosure.
-4. The browser network panel shows the deployed frontend origin in the API
-   `Access-Control-Allow-Origin` response.
-5. The demo contains only synthetic records.
-
-The deployment is not considered verified until these checks are run against the
-actual URLs. No deployment was performed by this coding session.
-
-## Rollback and recovery
-
-1. Stop traffic to the failing backend revision or point the ingress to the last
-   known-good backend image.
-2. Keep the database at its current migration level unless a reviewed recovery
-   procedure says otherwise. Prefer a forward migration fix over an automatic
-   downgrade.
-3. If data integrity is involved, preserve logs and use the managed database's
-   recovery snapshot according to its documented procedure.
-4. Rebuild the frontend with the previous compatible API contract if the backend
-   response shape changed.
-5. Re-run `/api/health`, `/api/ready`, CORS verification, and the manual workflow
-   in [`MANUAL_E2E.md`](MANUAL_E2E.md) before reopening the demo.
-
-## Limitations before a real production launch
-
-- No authentication, authorization, tenant isolation, or authenticated actor
-  identity exists.
-- Valid write operations are available to any caller who can reach the API.
-- Demo dispute resolution is not independent arbitration.
-- Escrow is a simulated database ledger, not custody or payment processing.
-- There is no rate limiting, CSRF strategy, request tracing, backup automation,
-  incident response, or operational alerting in this repository.
-- PostgreSQL compatibility is connection-level support; it has not been validated
-  here against a provider's production version.
-- Backend dependency resolution and Docker base images are not pinned to immutable
-  digests.
-- Interactive OpenAPI documentation remains enabled by default.
-
-Treat this architecture as a restricted demo deployment, not a real-money product.
+- [Deploy a FastAPI app](https://render.com/docs/deploy-fastapi)
+- [Your first deploy](https://render.com/docs/your-first-deploy)
+- [Environment variables](https://render.com/docs/configure-environment-variables)
+- [Static sites](https://render.com/docs/static-sites)
+- [Pre-deploy commands](https://render.com/docs/deploys#pre-deploy-command)
+- [Render pricing](https://render.com/pricing)

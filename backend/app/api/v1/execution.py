@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Job, Submission
+from app.demo_sessions import get_scoped_job
+from app.models import Submission
 from app.schemas import (
     ExecutionResponse,
     SubmissionCreate,
@@ -162,7 +163,7 @@ def submit_job_output(
     summary="List immutable job submissions",
 )
 def get_job_submissions(job_id: int, db: Session = Depends(get_db)) -> list[SubmissionResponse]:
-    if db.get(Job, job_id) is None:
+    if get_scoped_job(db, job_id) is None:
         raise HTTPException(status_code=404, detail="job not found")
     return list_submissions(db, job_id)
 
@@ -188,7 +189,7 @@ def verify_job_submission(job_id: int, db: Session = Depends(get_db)) -> Verific
     summary="Get the latest persisted verification",
 )
 def get_job_verification(job_id: int, db: Session = Depends(get_db)) -> VerificationResponse | Response:
-    if db.get(Job, job_id) is None:
+    if get_scoped_job(db, job_id) is None:
         raise HTTPException(status_code=404, detail="job not found")
     verification = latest_verification(db, job_id)
     if verification is None:

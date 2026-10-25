@@ -135,11 +135,17 @@ DEMO_JOBS = (
 )
 
 
-def seed_demo_data(*, with_jobs: bool = False) -> dict[str, int]:
+def seed_demo_data(*, with_jobs: bool = False, allow_production: bool = False) -> dict[str, int]:
     """Insert demo rows if their deterministic keys are not present."""
 
-    if get_settings().app_env.lower() not in {"development", "test"}:
-        raise RuntimeError("demo seed data is disabled outside development and test environments")
+    settings = get_settings()
+    environment = settings.app_env.lower()
+    production_seed_allowed = environment == "production" and getattr(settings, "demo_seed_enabled", False) and allow_production
+    if environment not in {"development", "test"} and not production_seed_allowed:
+        raise RuntimeError(
+            "demo seed data is disabled outside development and test environments; "
+            "production requires DEMO_SEED_ENABLED=true and --allow-production-demo"
+        )
 
     db = SessionLocal()
     created_agents = 0
@@ -218,8 +224,18 @@ def seed_demo_data(*, with_jobs: bool = False) -> dict[str, int]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Seed deterministic synthetic Auto Escrow data")
     parser.add_argument("--with-jobs", action="store_true", help="also create two synthetic jobs")
+    parser.add_argument(
+        "--allow-production-demo",
+        action="store_true",
+        help="allow this explicit synthetic-agent seed when DEMO_SEED_ENABLED=true in production",
+    )
     args = parser.parse_args()
-    print(json.dumps(seed_demo_data(with_jobs=args.with_jobs), sort_keys=True))
+    print(
+        json.dumps(
+            seed_demo_data(with_jobs=args.with_jobs, allow_production=args.allow_production_demo),
+            sort_keys=True,
+        )
+    )
 
 
 if __name__ == "__main__":

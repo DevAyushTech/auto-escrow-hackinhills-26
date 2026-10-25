@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.demo_sessions import ensure_scoped_count_allows_job
 from app.schemas import (
     MAX_JOB_BUDGET,
     JobCreate,
@@ -39,6 +40,7 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 @router.post("", response_model=JobSummary, status_code=201, summary="Create a job")
 def create_new_job(payload: JobCreate, db: Session = Depends(get_db)) -> JobSummary:
+    ensure_scoped_count_allows_job(db)
     if payload.requester_agent_id is not None and not agent_exists(db, payload.requester_agent_id):
         raise HTTPException(status_code=404, detail="requester agent not found")
     try:

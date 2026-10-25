@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.demo_sessions import synthetic_only
 from app.schemas import AgentListResponse, AgentSummary
 from app.services.agents import get_agent, list_agents
 
@@ -29,6 +30,6 @@ def list_registered_agents(
 @router.get("/{agent_id}", response_model=AgentSummary, summary="Get an agent")
 def get_registered_agent(agent_id: int, db: Session = Depends(get_db)) -> AgentSummary:
     agent = get_agent(db, agent_id)
-    if agent is None:
+    if agent is None or (synthetic_only(db) and not bool((agent.metadata_json or {}).get("synthetic"))):
         raise HTTPException(status_code=404, detail="agent not found")
     return agent

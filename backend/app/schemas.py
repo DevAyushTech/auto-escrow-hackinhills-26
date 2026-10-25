@@ -78,6 +78,16 @@ class HealthResponse(APIModel):
     timestamp: datetime
 
 
+class DemoSessionResponse(APIModel):
+    """The only credential returned by the anonymous sandbox bootstrap."""
+
+    session_token: StrictStr
+    expires_at: datetime
+    max_jobs: int = Field(ge=1)
+    synthetic_only: bool = True
+    reset_note: StrictStr | None = None
+
+
 class AgentSummary(APIModel):
     id: int
     external_id: StrictStr

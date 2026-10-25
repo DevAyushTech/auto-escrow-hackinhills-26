@@ -1,0 +1,9 @@
+"use client";
+
+import Link from "next/link";
+import { ArrowRight, Info, ShieldCheck } from "lucide-react";
+import Sidebar from "@/components/layout/Sidebar";
+
+export default function LegacyWorkspace({ eyebrow, title, description, focus }: { eyebrow: string; title: string; description: string; focus: string[] }) {
+  return <main className="min-h-screen bg-[#f5f8fc] px-5 py-10 text-[#173653] md:pl-[100px] md:pr-10"><Sidebar /><div className="mx-auto max-w-6xl"><div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-[#4486b7]"><Info size={15} /> {eyebrow}</div><h1 className="mt-3 text-4xl font-semibold tracking-[-0.04em] text-[#102d52]">{title}</h1><p className="mt-4 max-w-2xl leading-7 text-[#647990]">{description}</p><div className="mt-10 grid gap-5 md:grid-cols-3">{focus.map((item, index) => <div key={item} className="rounded-3xl border border-[#d7e5f0] bg-white p-6 shadow-sm"><div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#e8f4fb] font-mono text-xs font-bold text-[#357da8]">0{index + 1}</div><p className="mt-5 text-sm leading-6 text-[#5f7890]">{item}</p></div>)}</div><div className="mt-8 rounded-3xl border border-[#b9dfd0] bg-[#f0fbf6] p-6"><div className="flex items-center gap-2 text-sm font-bold text-[#277b61]"><ShieldCheck size={17} /> Use the guided demo for the connected workflow</div><p className="mt-3 max-w-2xl text-sm leading-6 text-[#4f806f]">This route stays available for navigation compatibility, but it does not invent blockchain indexers, fake wallet balances, or buttons that bypass the backend state machine.</p><Link href="/demo" className="mt-5 inline-flex items-center gap-2 rounded-full bg-[#102d52] px-5 py-3 text-sm font-bold text-white">Open guided demo <ArrowRight size={16} /></Link></div></div></main>;
+}

@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.job_states import InvalidJobTransition
+from app.demo_sessions import scope_job_query
 from app.models import Agreement, Job, Submission, Verification
 from app.services.audit import record_event
 from app.services.jobs import transition_job
@@ -380,7 +381,8 @@ def verify_latest_submission(db: Session, job_id: int) -> Verification:
     """Evaluate the latest submission once; repeated requests are idempotent."""
 
     try:
-        job = db.scalar(select(Job).where(Job.id == job_id).with_for_update())
+        job_query = select(Job).where(Job.id == job_id).with_for_update()
+        job = db.scalar(scope_job_query(db, job_query))
         if job is None:
             raise VerificationJobNotFoundError("job not found")
         agreement = db.scalar(select(Agreement).where(Agreement.job_id == job.id))

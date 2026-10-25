@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.demo_sessions import current_demo_session_id, scope_job_query
 from app.dispute_states import (
     DISPUTE_RESOLUTIONS,
     InvalidDisputeTransition,
@@ -74,7 +75,7 @@ def _safe_json_bytes(value: dict) -> int:
     return len(json.dumps(value, separators=(",", ":"), ensure_ascii=True).encode("utf-8"))
 
 
-def require_demo_operator(operator_identifier: str | None) -> str:
+def require_demo_operator(operator_identifier: str | None, db: Session | None = None) -> str:
     """Require the explicit development/test operator boundary.
 
     This is intentionally not authentication. It is a narrow local-demo guard
@@ -84,6 +85,10 @@ def require_demo_operator(operator_identifier: str | None) -> str:
     settings = get_settings()
     operator = (operator_identifier or "").strip()
     if settings.app_env.lower() not in {"development", "test"}:
+        if settings.demo_public_enabled and db is not None and current_demo_session_id(db) is not None:
+            if operator == "demo-session":
+                return f"demo-session-{current_demo_session_id(db)}"
+            raise DisputeAuthorizationError("public demo dispute actions require the caller's demo session boundary")
         raise DisputeAuthorizationError("demo dispute resolution is disabled outside development and test environments")
     if not operator or len(operator) > MAX_OPERATOR_IDENTIFIER_LENGTH:
         raise DisputeAuthorizationError("a valid demo operator identifier is required")
@@ -93,25 +98,30 @@ def require_demo_operator(operator_identifier: str | None) -> str:
 
 
 def get_dispute(db: Session, dispute_id: int) -> Dispute | None:
-    return db.get(Dispute, dispute_id)
+    query = (
+        select(Dispute)
+        .join(Job, Dispute.job_id == Job.id)
+        .where(Dispute.id == dispute_id)
+    )
+    return db.scalar(scope_job_query(db, query))
 
 
 def list_job_disputes(db: Session, job_id: int, status: str | None = None) -> list[Dispute]:
-    query = select(Dispute).where(Dispute.job_id == job_id)
+    query = scope_job_query(db, select(Dispute).join(Job, Dispute.job_id == Job.id).where(Dispute.job_id == job_id))
     if status:
         query = query.where(Dispute.status == status)
     return list(db.scalars(query.order_by(Dispute.created_at.desc(), Dispute.id.desc())).all())
 
 
 def list_disputes(db: Session, status: str | None = None) -> list[Dispute]:
-    query = select(Dispute)
+    query = scope_job_query(db, select(Dispute).join(Job, Dispute.job_id == Job.id))
     if status:
         query = query.where(Dispute.status == status)
     return list(db.scalars(query.order_by(Dispute.created_at.desc(), Dispute.id.desc())).all())
 
 
 def list_dispute_events(db: Session, dispute_id: int):
-    dispute = db.get(Dispute, dispute_id)
+    dispute = get_dispute(db, dispute_id)
     if dispute is None:
         raise DisputeNotFoundError("dispute not found")
     events = []
@@ -140,7 +150,8 @@ def _active_dispute(db: Session, job_id: int, escrow_id: int) -> Dispute | None:
 
 def create_dispute(db: Session, job_id: int, payload: DisputeCreate) -> Dispute:
     try:
-        job = db.scalar(select(Job).where(Job.id == job_id).with_for_update())
+        job_query = select(Job).where(Job.id == job_id).with_for_update()
+        job = db.scalar(scope_job_query(db, job_query))
         if job is None:
             raise DisputeJobNotFoundError("job not found")
         escrow = db.scalar(select(Escrow).where(Escrow.job_id == job.id).with_for_update())
@@ -234,9 +245,10 @@ def create_dispute(db: Session, job_id: int, payload: DisputeCreate) -> Dispute:
 
 
 def review_dispute(db: Session, dispute_id: int, operator_identifier: str, payload: DisputeReviewRequest | None = None) -> Dispute:
-    operator = require_demo_operator(operator_identifier)
+    operator = require_demo_operator(operator_identifier, db)
     try:
-        dispute = db.scalar(select(Dispute).where(Dispute.id == dispute_id).with_for_update())
+        dispute_query = select(Dispute).join(Job, Dispute.job_id == Job.id).where(Dispute.id == dispute_id).with_for_update()
+        dispute = db.scalar(scope_job_query(db, dispute_query))
         if dispute is None:
             raise DisputeNotFoundError("dispute not found")
         try:
@@ -277,16 +289,18 @@ def resolve_dispute(
     operator_identifier: str,
     payload: DisputeResolveRequest,
 ) -> Dispute:
-    operator = require_demo_operator(operator_identifier)
+    operator = require_demo_operator(operator_identifier, db)
     if payload.resolution not in DISPUTE_RESOLUTIONS:
         raise DisputeResolutionError("invalid dispute resolution outcome")
     try:
-        dispute = db.scalar(select(Dispute).where(Dispute.id == dispute_id).with_for_update())
+        dispute_query = select(Dispute).join(Job, Dispute.job_id == Job.id).where(Dispute.id == dispute_id).with_for_update()
+        dispute = db.scalar(scope_job_query(db, dispute_query))
         if dispute is None:
             raise DisputeNotFoundError("dispute not found")
         if dispute.escrow_id is None:
             raise DisputeEscrowRequiredError("dispute has no escrow to resolve")
-        job = db.scalar(select(Job).where(Job.id == dispute.job_id).with_for_update())
+        job_query = select(Job).where(Job.id == dispute.job_id).with_for_update()
+        job = db.scalar(scope_job_query(db, job_query))
         escrow = db.scalar(select(Escrow).where(Escrow.id == dispute.escrow_id).with_for_update())
         if job is None or escrow is None:
             raise DisputeRelationshipError("dispute job or escrow no longer exists")

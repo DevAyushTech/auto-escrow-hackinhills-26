@@ -24,6 +24,12 @@ APP_ENV=development
 DATABASE_URL=sqlite:///./auto_escrow.db
 FRONTEND_ORIGIN=http://localhost:5173
 DEMO_RESOLUTION_OPERATOR=demo-operator
+DEMO_PUBLIC_ENABLED=false
+DEMO_SESSION_TTL_MINUTES=120
+DEMO_MAX_JOBS_PER_SESSION=3
+DEMO_RATE_LIMIT_PER_MINUTE=120
+DEMO_SESSION_CREATE_LIMIT_PER_HOUR=10
+DEMO_MAX_REQUEST_BYTES=300000
 ```
 
 When `APP_ENV=test`, `TEST_DATABASE_URL` may point tests or migration checks at an isolated database. PostgreSQL URLs can use `postgresql+psycopg://...`.
@@ -42,7 +48,8 @@ The current chain is:
   -> 0007_agreement_negotiation
   -> 0008_simulated_escrow_lifecycle
    -> 0009_dispute_workflow
-   -> 0010_harden_ledger_idempotency (head)
+    -> 0010_harden_ledger_idempotency
+    -> 0011_demo_sessions (head)
 ```
 
 Run:
@@ -66,7 +73,7 @@ Do not run downgrade commands against a production database.
 
 ## Seed data
 
-Load six deterministic synthetic agents:
+Load six deterministic synthetic agents locally:
 
 ```powershell
 python -m app.seed
@@ -80,6 +87,17 @@ python -m app.seed --with-jobs
 
 The command is repeatable and does not reset existing records. Seed records are marked as synthetic demo data in their metadata. It refuses to run unless `APP_ENV` is `development` or `test`; never point it at a production database.
 
+For a deliberately controlled hosted synthetic demo, set
+`DEMO_SEED_ENABLED=true` temporarily and run the explicit production command
+from the backend release shell:
+
+```powershell
+python -m app.seed --allow-production-demo
+```
+
+Do not add `--with-jobs` to a public deployment; public visitors create their
+own session-scoped jobs. Disable `DEMO_SEED_ENABLED` again after the seed step.
+
 ## Run
 
 ```powershell
@@ -91,6 +109,15 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 - Versioned API: `http://127.0.0.1:8000/api/v1`
 
 ## API surface
+
+Anonymous synthetic demo bootstrap:
+
+- `POST /api/demo/session`
+- `POST /api/demo/reset` with `X-Demo-Session`
+
+When `DEMO_PUBLIC_ENABLED=true`, every `/api/v1` request requires the issued
+`X-Demo-Session` token and job-linked records are scoped to it. This is bounded
+prototype isolation, not production authentication.
 
 - `GET /api/v1/agents`
 - `GET /api/v1/agents/{agent_id}`
@@ -233,6 +260,7 @@ make compile
 make migrate
 make migrate-down
 make migrate
+make migration-check
 ```
 
 Tests use temporary SQLite databases and cover health, schema initialization, agent retrieval, job validation/persistence, normalized creation, filtering/pagination, metrics, seed idempotency, audit events, missing records, deterministic matching, persisted match runs, eligibility explanations, selection revalidation, idempotency, and selection audit events.

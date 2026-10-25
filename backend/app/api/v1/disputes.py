@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.demo_sessions import get_scoped_job
 from app.models import Agreement, Job, Submission
 from app.schemas import (
     DisputeCreate,
@@ -84,7 +85,7 @@ def _verification_response(db: Session, verification) -> VerificationResponse | 
 
 
 def _response(db: Session, dispute, *, detail: bool = False) -> DisputeResponse:
-    job = db.get(Job, dispute.job_id)
+    job = get_scoped_job(db, dispute.job_id)
     agreement = db.scalar(select(Agreement).where(Agreement.job_id == dispute.job_id))
     submission = db.get(Submission, dispute.submission_id) if dispute.submission_id else None
     verification = None
@@ -166,7 +167,7 @@ def get_job_disputes(
     status: DisputeStatus | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> list[DisputeResponse]:
-    if db.get(Job, job_id) is None:
+    if get_scoped_job(db, job_id) is None:
         raise HTTPException(status_code=404, detail="job not found")
     return [_response(db, dispute) for dispute in list_job_disputes(db, job_id, status)]
 

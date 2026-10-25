@@ -1,36 +1,26 @@
-# Auto Escrow judge demo guide
+# Auto Escrow judge demo
 
-**Team:** Code Rangers  
-**Event:** Hack in Hills ’26 Round 2
+## One-sentence pitch
 
-This guide describes a repeatable local demonstration of the implementation that exists in this repository. It does not use fake screenshots, fabricated metrics, or claimed payment-provider activity.
+Auto Escrow makes AI-agent work reviewable: it connects requirements to an
+explainable match, freezes the accepted terms, records a simulated escrow,
+checks the submitted result, and keeps settlement behind explicit backend rules.
 
-## A. Opening pitch
+## Preparation
 
-AI-agent work is useful, but the requester still needs to know which agent was selected, what was agreed, whether the delivered result meets the criteria, and why a payment decision was made. Auto Escrow makes that workflow visible and reviewable.
-
-The requester defines a job, compares explainable agent matches, accepts versioned agreement terms, and funds a simulated escrow derived from those terms. The local demo then stores a submission, evaluates it against the accepted criteria, and permits settlement only through backend rules. If the result fails or is disputed, the system keeps the escrow protected and records the decision in the ledger and audit trail.
-
-The important distinction is that the frontend presents the workflow, while the FastAPI backend owns the state machine and financial authority.
-
-## B. Prepare the demo
-
-Use two PowerShell terminals from the repository root.
-
-### Terminal 1 — backend
+From the repository root, use two PowerShell windows:
 
 ```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r backend\requirements.txt
+py -3.11 -m venv backend\.venv
+backend\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+if (-not (Test-Path backend\.env)) { Copy-Item backend\.env.example backend\.env }
 Set-Location backend
-if (-not (Test-Path .env)) { Copy-Item .env.example .env }
-python -m alembic upgrade head
-python -m app.seed --with-jobs
-python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+..\.venv\Scripts\python.exe -m alembic upgrade head
+..\.venv\Scripts\python.exe -m app.seed --with-jobs
+..\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-### Terminal 2 — frontend
+In the second window:
 
 ```powershell
 Set-Location frontend
@@ -39,169 +29,54 @@ npm ci
 npm run dev
 ```
 
-Open:
+Open `http://localhost:5173/demo` from the Vite dev server.
 
-- Frontend: `http://localhost:5173`
-- API docs: `http://localhost:8000/docs`
-- Health: `http://localhost:8000/api/health`
+## Two-minute presentation
 
-The seed is repeatable and creates six synthetic agents plus two synthetic jobs. It does not reset the database and refuses to run outside `development` and `test`. Numeric database IDs are not guaranteed; use the records displayed by the UI or API rather than assuming that a seeded agent is always ID `4`.
+1. **Frame the problem (15 seconds).** “A requester needs to know which agent
+   fits, what was agreed, whether the result meets the criteria, and why a
+   settlement decision was made.”
+2. **Discover (20 seconds).** Select a synthetic agent and point out skills,
+   availability, output formats, and completion estimate.
+3. **Define (20 seconds).** Keep the prefilled task. Explain that budget,
+   deadline, deliverable, and criteria are sent to FastAPI, not held only in
+   React state.
+4. **Match (20 seconds).** Show the real score, matched skills, warnings, and
+   an excluded candidate. State that matching is a heuristic signal.
+5. **Agree (15 seconds).** Create and accept the proposal. Point out the frozen
+   version and that acceptance does not fund escrow.
+6. **Fund (15 seconds).** Confirm simulated funding. Show the accepted amount,
+   state, and the ledger disclaimer: no real money moved.
+7. **Submit and verify (30 seconds).** Start local execution, submit the
+   prefilled JSON fixture, and verify. Explain that submitted code is never
+   executed and that the verifier uses the accepted agreement snapshot.
+8. **Release (15 seconds).** Release only after the API reports settlement
+   eligibility. Show the funding and release ledger entries.
+9. **Record (10 seconds).** Finish on the audit timeline and explain that the
+   record is the product: it tells the judge what happened and why.
 
-## C. Successful workflow
+## Failure/dispute branch
 
-For the most reliable passing demonstration, create a fresh job instead of relying on the seeded jobs' original criteria. Use criteria that the deterministic evaluator explicitly supports:
+For a second flow, change the submitted output to omit `approved` or one of the
+required JSON fields. Verification should show a failed check and keep release
+blocked. Open a synthetic dispute, begin review, and resolve it as `refund`.
+Show that the job becomes cancelled, escrow becomes refunded, and the ledger
+contains one refund entry after funding. In public demo mode, the resolution is
+session-scoped to the caller's own sandbox; it is not a shared operator account.
 
-- `Required JSON fields: summary, status`
-- `Required terms: approved, synthetic`
-- `Required evidence fields: source`
-- `Minimum length: 20 characters`
+For a manual-review example, use a criterion containing `Manual review: factual
+accuracy`. The result must be `manual_review`, not a pass.
 
-### Presentation sequence
+## What to say if asked
 
-1. Open **Agents** and show persisted agent records, availability, skills, categories, and synthetic-profile labels.
-2. Open **Jobs → Create job**.
-3. Enter a clear title, description, required skills, task category, expected output, budget, future deadline, and the criteria above.
-4. Submit the job and point out that the UI navigates only after the backend confirms creation.
-5. Open **Find Matching Agents** from the job detail page.
-6. Show the ranked score, matched/missing skills, warnings, eligibility, and the versioned scoring policy.
-7. Select an eligible agent. Explain that selection persists `selected_agent_id` but does not create an agreement or fund escrow automatically.
-8. Open the **Agreement workspace** and create the proposal.
-9. Optionally request a revision, submit revised terms, and show the versioned proposal history.
-10. Accept the proposal. Show that the accepted version is frozen and the job becomes `assigned`.
-11. Open **Escrow details** and point out the accepted amount/currency and the simulated-ledger disclaimer.
-12. Choose **Fund Demo Escrow** and confirm the browser prompt.
-13. After the API response, show the persisted `funded` status, one funding ledger entry, and related audit events.
-14. Open **Execution workspace** and start the local demo execution.
-15. Submit:
-
-```json
-{"summary":"approved synthetic result","status":"approved"}
-```
-
-with evidence:
-
-```json
-{"source":"synthetic-fixture"}
-```
-
-16. Run **Verify latest submission**. Explain that the verifier loads the accepted agreement from the database and does not accept a client-claimed pass.
-17. Show the passing checks, `completed` job state, and settlement-ready status.
-18. Return to escrow. When the backend reports settlement eligibility, use **Release simulated escrow**, confirm the consequence, and verify the persisted released state, funding/release ledger entries, and corresponding audit history.
-
-The passing verification itself does not release funds. Verification makes the escrow eligible; the escrow service performs the separate release operation.
-
-## D. Failed-verification workflow
-
-Use a funded job with a criterion such as:
-
-```text
-Required terms: approved
-```
-
-1. Start execution.
-2. Submit `pending result` without the required term.
-3. Run verification.
-4. Show the failed check and the stored reason that the required term is missing.
-5. Point out that the job remains under review and escrow is not released merely because a submission exists.
-6. Submit a corrected result containing `approved`.
-7. Confirm the new immutable submission version appears.
-8. Verify again and show that the latest submission can now be evaluated independently of the earlier failed result.
-
-For a manual-review demonstration, use a criterion such as `Manual review: factual accuracy`. The evaluator records `overall_result: manual_review`; it is not treated as a pass and does not expose an automatic retry path.
-
-## E. Dispute and refund workflow
-
-1. Use a funded job with a submission or verification context.
-2. From the job or escrow page, choose **Open a dispute**.
-3. Enter a reason, description, related agent, and JSON evidence.
-4. Confirm that opening the dispute moves both the job and escrow into `disputed` protection.
-5. Try the normal release/refund boundary and explain that unresolved disputes block settlement.
-6. Open the dispute detail page and review:
-   - accepted agreement terms;
-   - original job requirements;
-   - submitted output and evidence;
-   - verification checks and reasons;
-   - dispute evidence;
-   - dispute-specific audit events.
-7. Choose **Begin review**. In development/test mode the UI sends the configured demo operator boundary:
-
-```text
-X-Demo-Operator: demo-operator
-```
-
-8. Enter a rationale of at least 10 characters and choose **Resolve: refund**.
-9. Confirm the dispute is terminal, the job is cancelled, the escrow is refunded, and the ledger contains one refund entry after the funding entry.
-10. Attempt a second resolution or refund and show that the backend rejects it.
-
-The other supported outcomes are:
-
-- `release`: completes the job and calls the normal release service.
-- `reject`: restores the captured workflow state without creating a financial ledger entry.
-
-The demo operator header is not authentication, not independent arbitration, and not suitable for a public deployment.
-
-## F. Technical explanation for judges
-
-### Frontend and backend
-
-The frontend is React 18 with Vite, TypeScript, React Router, Tailwind CSS, and a typed API client. The backend is FastAPI with Pydantic contracts, SQLAlchemy 2, Alembic, and SQLite by default. The frontend renders server responses and never owns authoritative lifecycle state.
-
-### Matching
-
-Matching is deterministic and versioned as `phase5-v1`:
-
-- skills: 50%;
-- exact task category: 20%;
-- availability/deadline: 20%;
-- budget: 10%.
-
-Agent status, availability, required skills, and deadline feasibility are eligibility rules. Agent pricing does not exist in the current model, so the budget component is neutral and includes a warning rather than inventing a price.
-
-### Verification
-
-Verification evaluates the latest immutable submission using the accepted agreement snapshot. It supports deterministic JSON, field, section, term, length, evidence, format, and restricted JSON-schema checks. Subjective criteria become `manual_review` rather than being guessed or marked as passed.
-
-### Escrow and ledger
-
-Funding derives amount and currency from the accepted agreement. The backend records a canonical funding ledger entry and validates idempotency, currency, job relationship, balance reconciliation, and terminal states. Release requires completed job plus passing verification. Refund requires an authoritative resolved dispute. Ledger and audit updates are transactional.
-
-### Audit and disputes
-
-Audit events record successful lifecycle changes. Disputes capture the prior job/escrow states, evidence, related submission/verification IDs, and resolution outcome. Unresolved disputes block normal settlement.
-
-### Security boundary
-
-This is a local/demo MVP. It has no production authentication, authorization, tenant isolation, real payment provider, custody, wallet, blockchain transaction, or independent arbitration. The local executor does not run submitted code or call an external agent runtime.
-
-## G. Demo recovery
-
-### API or frontend is not running
-
-- Check `http://localhost:8000/api/health`.
-- Start the backend from `backend/` with the Uvicorn command above.
-- Confirm `frontend/.env` contains `VITE_API_BASE_URL=http://localhost:8000`.
-- Restart the Vite process after changing a `VITE_` variable because it is read at build/dev startup.
-
-### Migration or schema error
-
-Use a disposable database, not a valuable development database:
-
-```powershell
-Set-Location backend
-$env:APP_ENV = "test"
-$env:TEST_DATABASE_URL = "sqlite:///./phase12-demo.sqlite3"
-python -m alembic upgrade head
-```
-
-For a complete disposable-chain check, use `python -m alembic downgrade base` followed by `python -m alembic upgrade head`. Do not run downgrade commands against production data.
-
-### Need a clean demo dataset
-
-There is no application reset endpoint. Use a new disposable SQLite path, migrate it, and run the idempotent seed command. Do not delete or overwrite a valuable database to recover a presentation.
-
-```powershell
-$env:APP_ENV = "test"
-$env:TEST_DATABASE_URL = "sqlite:///./phase12-clean-demo.sqlite3"
-python -m alembic upgrade head
-python -m app.seed --with-jobs
-```
+- **Is this real escrow?** No. It is a persisted simulated ledger for the MVP.
+- **Does it run agent code?** No. The local executor records the workflow and
+  submitted output is never executed.
+- **Can the frontend release funds?** No. The backend checks completed state,
+  passed verification, unresolved disputes, ledger reconciliation, and terminal
+  state before release.
+- **How is a public demo scoped?** The server issues an expiring random token;
+  job-linked records are owned by that session. Reset rotates the token and
+  deletes only its records.
+- **Is this production authentication?** No. It is bounded anonymous demo
+  access, not a full account/tenant identity system.

@@ -214,6 +214,21 @@ def test_seed_is_disabled_outside_demo_environments(monkeypatch, session_factory
         seed_demo_data()
 
 
+def test_production_seed_requires_explicit_demo_flag_and_setting(monkeypatch, session_factory) -> None:
+    import app.seed as seed_module
+
+    monkeypatch.setattr(seed_module, "SessionLocal", session_factory)
+    monkeypatch.setattr(
+        seed_module,
+        "get_settings",
+        lambda: type("Settings", (), {"app_env": "production", "demo_seed_enabled": True})(),
+    )
+    with pytest.raises(RuntimeError, match="--allow-production-demo"):
+        seed_demo_data()
+    result = seed_demo_data(allow_production=True)
+    assert result == {"agents_created": 6, "jobs_created": 0}
+
+
 def test_missing_records_and_missing_related_rows_have_explicit_responses(client, db_session) -> None:
     assert client.get("/api/v1/agents/9999").status_code == 404
     assert client.get("/api/v1/agreements/9999").status_code == 404

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.job_states import INITIAL_JOB_STATUS, validate_transition
 from app.models import Agent, Job
+from app.demo_sessions import current_demo_session_id, get_scoped_job, scope_job_query
 from app.schemas import JobCreate
 from app.services.audit import record_event
 
@@ -37,6 +38,7 @@ def create_job(db: Session, payload: JobCreate) -> Job:
         requester_agent_id=payload.requester_agent_id,
         requirements=payload.requirements,
         status=INITIAL_JOB_STATUS,
+        demo_session_id=current_demo_session_id(db),
     )
     db.add(job)
     db.flush()
@@ -54,7 +56,7 @@ def create_job(db: Session, payload: JobCreate) -> Job:
 
 
 def get_job(db: Session, job_id: int) -> Job | None:
-    return db.get(Job, job_id)
+    return get_scoped_job(db, job_id)
 
 
 def list_jobs(
@@ -70,8 +72,8 @@ def list_jobs(
     limit: int = 100,
     sort: str = "newest",
 ) -> tuple[list[Job], int]:
-    query = select(Job)
-    count_query = select(func.count()).select_from(Job)
+    query = scope_job_query(db, select(Job))
+    count_query = scope_job_query(db, select(func.count()).select_from(Job))
     if status:
         query = query.where(Job.status == status)
         count_query = count_query.where(Job.status == status)

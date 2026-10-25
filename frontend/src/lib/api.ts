@@ -1,14 +1,27 @@
-export type HealthResponse = {
-  status: string
-  service: string
-  environment: string
-  timestamp: string
-}
+/**
+ * Typed browser client for the FastAPI application.
+ *
+ * The backend is authoritative for workflow state.  This module only adapts
+ * the wire contracts into the shapes used by the active Vite workspace and
+ * never fabricates a successful response when the API is unavailable.
+ */
+
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/$/, '')
+export const baseUrl = API_BASE_URL
+export const DEMO_PUBLIC_ENABLED = import.meta.env.VITE_DEMO_PUBLIC_ENABLED === 'true'
+const DEMO_SESSION_STORAGE_KEY = 'auto-escrow-demo-session'
+const DEMO_SESSION_HEADER = 'X-Demo-Session'
 
 export type AgentStatus = 'active' | 'inactive' | 'suspended'
 export type AgentAvailability = 'available' | 'busy' | 'unavailable'
-
-export type AgentMetadata = Record<string, unknown>
+export type JobStatus = 'open' | 'assigned' | 'in_progress' | 'submitted' | 'under_review' | 'completed' | 'disputed' | 'cancelled'
+export type AgreementStatus = 'draft' | 'proposed' | 'revision_requested' | 'revision_pending' | 'accepted' | 'rejected' | 'expired' | 'cancelled'
+export type EscrowStatus = 'pending' | 'funded' | 'held' | 'released' | 'refunded' | 'disputed'
+export type DisputeCategory = 'failed_verification' | 'deliverable_incomplete' | 'agreement_mismatch' | 'deadline_issue' | 'other'
+export type DisputeStatus = 'open' | 'under_review' | 'resolved' | 'rejected'
+export type DisputeResolution = 'release' | 'refund' | 'reject'
+export type SupportedCurrency = 'USD' | 'EUR' | 'GBP' | 'JPY' | 'CAD' | 'AUD'
+export const supportedCurrencies: SupportedCurrency[] = ['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD']
 
 export type AgentSummaryDto = {
   id: number
@@ -23,118 +36,19 @@ export type AgentSummaryDto = {
   supported_output_formats: string[]
   estimated_completion_minutes: number | null
   demo_performance_stats: Record<string, unknown>
-  /** Deprecated compatibility alias retained by the backend. */
   capabilities?: string[]
-  /** Deprecated compatibility alias retained by the backend. */
-  metadata?: AgentMetadata
+  metadata: Record<string, unknown>
   created_at: string
 }
 
-/** The detail endpoint currently returns the canonical agent summary shape. */
 export type AgentDetailDto = AgentSummaryDto
+export type AgentSummary = AgentSummaryDto
+export type Agent = AgentSummaryDto
 
 export type AgentListResponseDto = {
   items: AgentSummaryDto[]
   total: number
 }
-
-export type DashboardMetricsDto = {
-  total_jobs: number
-  jobs_in_progress: number
-  completed_jobs: number
-  open_disputes: number
-  total_simulated_escrow_funded: string
-  total_simulated_escrow_settled: string
-}
-
-export type JobStatus = 'open' | 'assigned' | 'in_progress' | 'submitted' | 'under_review' | 'completed' | 'disputed' | 'cancelled'
-
-export type JobSummaryDto = {
-  id: number
-  public_id: string
-  requester_agent_id: number | null
-  executor_agent_id: number | null
-  selected_agent_id: number | null
-  title: string
-  description: string
-  required_skills: string[]
-  task_category: string
-  expected_output: string
-  acceptance_criteria: string[]
-  additional_instructions: string | null
-  budget: string
-  currency: string
-  deadline: string
-  status: JobStatus
-  /** Deprecated compatibility field retained by the backend. */
-  requirements?: Record<string, unknown>
-  created_at: string
-  updated_at: string
-}
-
-/** The detail endpoint currently returns the canonical job summary shape. */
-export type JobDetailDto = JobSummaryDto
-
-export type JobListResponseDto = {
-  items: JobSummaryDto[]
-  total: number
-}
-
-export type MatchingScoringFormulaDto = {
-  skills: number
-  category: number
-  availability_deadline: number
-  budget: number
-}
-
-export type MatchingMetadataDto = {
-  run_id: string
-  scoring_version: string
-  scoring_formula: MatchingScoringFormulaDto
-}
-
-export type MatchingCompatibilityDto = {
-  skills: number
-  category: number
-  availability_deadline: number
-  budget: number
-}
-
-export type MatchingCandidateDto = {
-  agent_id: number
-  agent_name: string
-  agent_external_id: string | null
-  score: number
-  matched_skills: string[]
-  missing_skills: string[]
-  compatibility: MatchingCompatibilityDto
-  explanation: string
-  warnings: string[]
-}
-
-export type ExcludedAgentDto = {
-  agent_id: number
-  agent_name: string
-  agent_external_id: string | null
-  reasons: string[]
-}
-
-export type MatchingResponseDto = {
-  job_id: number
-  metadata: MatchingMetadataDto
-  candidates: MatchingCandidateDto[]
-  excluded_agents: ExcludedAgentDto[]
-}
-
-export type AgentSelectionResponseDto = {
-  job_id: number
-  selected_agent_id: number
-  status: string
-  message: string | null
-}
-
-export const supportedCurrencies = ['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD'] as const
-export type SupportedCurrency = typeof supportedCurrencies[number]
 
 export type CreateJobPayload = {
   title: string
@@ -146,54 +60,67 @@ export type CreateJobPayload = {
   budget: string
   currency: SupportedCurrency
   deadline: string
+  additional_instructions?: string | null
+  requester_agent_id?: number | null
+  requirements?: Record<string, unknown>
+}
+
+export type JobSummaryDto = {
+  id: number
+  public_id: string
+  requester_agent_id: number | null
+  executor_agent_id: number | null
+  selected_agent_id: number | null
+  selected_match_run_id?: string | null
+  selected_matching_score?: string | number | null
+  selected_scoring_version?: string | null
+  title: string
+  description: string
+  required_skills: string[]
+  task_category: string
+  expected_output: string
+  acceptance_criteria: string[]
   additional_instructions: string | null
+  budget: string
+  currency: string
+  deadline: string
+  status: JobStatus
+  requirements?: Record<string, unknown>
+  created_at: string
+  updated_at: string
 }
 
-export type JobListSort = 'newest' | 'deadline'
+export type JobDetailDto = JobSummaryDto
+export type JobSummary = JobSummaryDto
 
-export type JobListQuery = {
-  status?: JobStatus
-  taskCategory?: string
-  search?: string
-  minBudget?: string | number
-  maxBudget?: string | number
-  sort?: JobListSort
-  page?: number
-  pageSize?: number
-  skip?: number
-  limit?: number
-  requesterAgentId?: number
+export type JobListResponseDto = {
+  items: JobSummaryDto[]
+  total: number
 }
 
-export type AgreementStatus = 'draft' | 'proposed' | 'revision_requested' | 'revision_pending' | 'accepted' | 'rejected' | 'expired' | 'cancelled'
-
-export type AgreementTermsDto = {
-  scope?: string
-  expected_deliverable?: string
-  acceptance_criteria?: string[]
-  verification_method?: string
-  cancellation_conditions?: string
-  dispute_conditions?: string
+export type AgreementTermsPayload = {
+  scope: string
+  expected_deliverable: string
+  acceptance_criteria: string[]
+  verification_method: string
+  cancellation_conditions: string
+  dispute_conditions: string
   instructions?: string | null
-  [key: string]: unknown
+  verification_rules?: Record<string, unknown> | null
 }
 
-export type AgreementHistoryEntryDto = {
-  id?: number
-  version?: number
-  proposal_version?: number
-  action?: string
-  event_type?: string
-  status?: AgreementStatus
+export type AgreementTermsDto = AgreementTermsPayload & Record<string, unknown>
+
+export type CreateAgreementPayload = {
   proposed_budget?: string
-  proposed_deadline?: string | null
-  currency?: string
-  terms?: AgreementTermsDto
-  reason?: string | null
-  actor_agent_id?: number | null
-  created_at?: string
-  occurred_at?: string
-  [key: string]: unknown
+  proposed_deadline?: string
+  currency?: SupportedCurrency
+  terms?: AgreementTermsPayload
+  rationale?: string | null
+}
+
+export type SubmitAgreementRevisionPayload = CreateAgreementPayload & {
+  action: 'submit_revision'
 }
 
 export type AgreementDto = {
@@ -206,50 +133,35 @@ export type AgreementDto = {
   currency: string
   status: AgreementStatus
   terms: AgreementTermsDto
-  proposal_version?: number
-  accepted_version?: number | null
-  history?: AgreementHistoryEntryDto[]
-  proposal_history: AgreementHistoryEntryDto[]
+  proposal_history: Record<string, unknown>[]
+  history?: Record<string, unknown>[]
   amount: string
   created_at: string
   updated_at: string
   accepted_at: string | null
+  proposal_version?: number
+  accepted_version?: number | null
 }
 
-export type AgreementTermsPayload = {
-  scope: string
-  expected_deliverable: string
-  acceptance_criteria: string[]
-  verification_method: string
-  cancellation_conditions: string
-  dispute_conditions: string
-  instructions?: string | null
+export type AgreementHistoryEntryDto = {
+  id?: number
+  version?: number
+  proposal_version?: number
+  action?: string
+  event_type?: string
+  status?: AgreementStatus
+  created_at?: string
+  occurred_at?: string
+  reason?: string
+  terms?: AgreementTermsDto
 }
-
-export type CreateAgreementPayload = {
-  proposed_budget: string
-  proposed_deadline?: string
-  currency: SupportedCurrency
-  terms: AgreementTermsPayload
-}
-
-export type SubmitAgreementRevisionPayload = CreateAgreementPayload
-export type AgreementHistoryDto = AgreementHistoryEntryDto[]
-export type AgreementAction = 'request_revision' | 'submit_revision' | 'accept' | 'reject' | 'cancel'
-export type AgreementActionResponseDto = AgreementDto
-
-export type EscrowStatus = 'pending' | 'funded' | 'held' | 'released' | 'refunded' | 'disputed'
-
-export type LedgerEntryType = 'funding' | 'deposit' | 'hold' | 'release' | 'refund' | 'fee'
 
 export type LedgerEntryDto = {
   id: number
   escrow_id: number
-  /** Optional on older ledger responses that only identify the escrow. */
   job_id?: number | null
   idempotency_key: string
-  /** `deposit` is retained for compatibility with the legacy escrow response. */
-  entry_type: LedgerEntryType
+  entry_type: 'deposit' | 'funding' | 'hold' | 'release' | 'refund' | 'fee'
   amount: string
   currency: string
   reference: string | null
@@ -260,9 +172,14 @@ export type EscrowDto = {
   id: number
   job_id: number
   agreement_id: number
+  accepted_agreement_version?: number | null
+  agreement_version?: number | null
+  accepted_amount?: string
+  accepted_currency?: string
   funded_amount: string | null
   currency: string
   status: EscrowStatus
+  funding_state?: string
   provider_reference: string | null
   funded_at: string | null
   released_at: string | null
@@ -293,10 +210,8 @@ export type ExecutionDto = {
   verify_reason: string
   started_at: string | null
   latest_submission_version: number | null
-  latest_verification_result: VerificationResult | null
+  latest_verification_result: VerificationDto['overall_result'] | null
 }
-
-export type SubmissionStatus = 'pending' | 'accepted' | 'rejected'
 
 export type SubmissionDto = {
   id: number
@@ -308,18 +223,23 @@ export type SubmissionDto = {
   submitted_output: string
   evidence: Record<string, unknown>
   notes: string | null
-  status: SubmissionStatus
+  status: 'pending' | 'accepted' | 'rejected'
   submitted_at: string
 }
 
-export type VerificationResult = 'pending' | 'passed' | 'failed' | 'manual_review' | 'needs_revision'
-export type VerificationStatus = 'pending' | 'passed' | 'failed'
-export type VerificationCheckDto = {
+export type SubmissionPayload = {
+  submitted_output: string
+  evidence: Record<string, unknown>
+  notes?: string
+  agent_id?: number
+}
+
+export type VerificationCheck = {
   name: string
-  status: 'passed' | 'failed' | 'manual_review'
-  passed: boolean
+  status: 'passed' | 'failed' | 'manual_review' | string
+  passed?: boolean
   explanation: string
-  evidence: unknown
+  evidence?: unknown
 }
 
 export type VerificationDto = {
@@ -327,9 +247,9 @@ export type VerificationDto = {
   job_id: number
   submission_id: number
   submission_version: number
-  status: VerificationStatus
-  overall_result: VerificationResult
-  individual_checks: VerificationCheckDto[]
+  status: 'pending' | 'passed' | 'failed'
+  overall_result: 'pending' | 'passed' | 'failed' | 'manual_review' | 'needs_revision'
+  individual_checks: VerificationCheck[]
   reasons: string[]
   evaluator_type: 'automated' | 'human' | 'hybrid'
   score: string | null
@@ -337,29 +257,6 @@ export type VerificationDto = {
   evaluated_at: string | null
   verified_at: string | null
 }
-
-export type DashboardExecutionDto = {
-  jobs_running: number
-  jobs_awaiting_submission: number
-  jobs_awaiting_verification: number
-  jobs_eligible_for_settlement: number
-  recent_submissions: SubmissionDto[]
-  recent_verifications: VerificationDto[]
-}
-
-export type JobEventDto = {
-  id: number
-  job_id: number | null
-  actor_agent_id: number | null
-  event_type: string
-  description: string
-  data: Record<string, unknown>
-  created_at: string
-}
-
-export type DisputeCategory = 'failed_verification' | 'deliverable_incomplete' | 'agreement_mismatch' | 'deadline_issue' | 'other'
-export type DisputeStatus = 'open' | 'under_review' | 'resolved' | 'rejected'
-export type DisputeResolution = 'release' | 'refund' | 'reject'
 
 export type DisputeDto = {
   id: number
@@ -384,12 +281,12 @@ export type DisputeDto = {
   updated_at: string
   agreement_terms: Record<string, unknown>
   job_requirements: Record<string, unknown>
-  submission: SubmissionDto | null
-  verification: VerificationDto | null
+  submission?: SubmissionDto | null
+  verification?: VerificationDto | null
   events: JobEventDto[]
 }
 
-export type CreateDisputePayload = {
+export type DisputeCreatePayload = {
   escrow_id: number
   category: DisputeCategory
   reason: string
@@ -398,671 +295,803 @@ export type CreateDisputePayload = {
   raised_by_agent_id: number
 }
 
-export class ApiError extends Error {
-  readonly status?: number
-  readonly code?: string
-  readonly details?: unknown
+export type JobEventDto = {
+  id: number
+  job_id: number | null
+  actor_agent_id: number | null
+  event_type: string
+  description: string
+  data: Record<string, unknown>
+  created_at: string
+}
 
-  constructor(message: string, status?: number, code?: string, details?: unknown) {
-    super(message)
+export type DashboardMetricsDto = {
+  total_jobs: number
+  jobs_in_progress: number
+  completed_jobs: number
+  open_disputes: number
+  total_simulated_escrow_funded: string
+  total_simulated_escrow_settled: string
+}
+
+export type DashboardExecutionDto = {
+  jobs_running: number
+  jobs_awaiting_submission: number
+  jobs_awaiting_verification: number
+  jobs_eligible_for_settlement: number
+  recent_submissions: (SubmissionDto & { job_id: number })[]
+  recent_verifications: (VerificationDto & { job_id: number })[]
+}
+
+export type HealthResponse = {
+  status: string
+  service: string
+  environment: string
+  timestamp: string
+}
+
+export type DemoSessionDto = {
+  session_token: string
+  expires_at: string
+  max_jobs: number
+  synthetic_only: boolean
+  reset_note: string | null
+}
+
+type Compatibility = {
+  skills: number
+  category: number
+  availability_deadline: number
+  budget: number
+}
+
+export type MatchingCandidateDto = {
+  agent_id: number
+  agent_name: string
+  agent_external_id?: string | null
+  score: number
+  matched_skills: string[]
+  missing_skills: string[]
+  compatibility: Compatibility
+  breakdown?: Record<string, unknown>
+  explanation: string
+  warnings: string[]
+  eligible: boolean
+  exclusion_reasons?: string[]
+  reasons: string[]
+}
+
+export type MatchingResponseDto = {
+  job_id: number
+  metadata: {
+    run_id: string
+    scoring_version: string
+    scoring_formula: { skills: number; category: number; availability_deadline: number; budget: number }
+  }
+  candidates: MatchingCandidateDto[]
+  excluded_agents: MatchingCandidateDto[]
+}
+
+export type MatchRun = MatchingResponseDto
+export type MatchCandidate = MatchingCandidateDto
+export type JobEvent = JobEventDto
+export type Agreement = AgreementDto
+export type Escrow = EscrowDto
+export type ExecutionState = ExecutionDto
+export type Submission = SubmissionDto
+export type Verification = VerificationDto
+export type Dispute = DisputeDto
+
+export class ApiError extends Error {
+  readonly status: number
+  readonly detail: string
+  readonly payload: unknown
+
+  constructor(status: number, detail: string, payload: unknown = null) {
+    super(detail)
     this.name = 'ApiError'
     this.status = status
-    this.code = code
-    this.details = details
+    this.detail = detail
+    this.payload = payload
   }
 }
 
-const baseUrl = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/$/, '')
-
-type RecordValue = Record<string, unknown>
-
-function isRecord(value: unknown): value is RecordValue {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
-function errorPayloadMessage(payload: unknown): { message?: string; code?: string; details?: unknown } {
-  if (!isRecord(payload)) return {}
-  const detail = payload.detail
-  const message = typeof payload.message === 'string' ? payload.message : typeof detail === 'string' ? detail : undefined
-  const code = typeof payload.code === 'string' ? payload.code : typeof payload.error_code === 'string' ? payload.error_code : undefined
-  return { message, code, details: detail && typeof detail !== 'string' ? detail : undefined }
+function detailText(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) {
+    const messages = value.map((item) => {
+      const record = asRecord(item)
+      return typeof record.msg === 'string' ? record.msg : detailText(item)
+    }).filter(Boolean)
+    return messages.join(' ') || 'The API rejected the request.'
+  }
+  const record = asRecord(value)
+  if (typeof record.message === 'string') return record.message
+  if (typeof record.detail === 'string') return record.detail
+  if (Object.keys(record).length > 0) return JSON.stringify(record)
+  return 'The API request failed.'
 }
 
-async function request<T>(path: string, options?: RequestInit, expectedStatus?: number): Promise<T> {
-  const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), 5000)
-
+function readStoredSession(): DemoSessionDto | null {
+  if (typeof window === 'undefined') return null
   try {
-    const response = await fetch(`${baseUrl}${path}`, {
-      ...options,
-      headers: { Accept: 'application/json', ...options?.headers },
-      signal: controller.signal,
-    })
+    const raw = window.localStorage.getItem(DEMO_SESSION_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<DemoSessionDto>
+    return typeof parsed.session_token === 'string' && typeof parsed.expires_at === 'string'
+      ? {
+          session_token: parsed.session_token,
+          expires_at: parsed.expires_at,
+          max_jobs: Number(parsed.max_jobs ?? 3),
+          synthetic_only: parsed.synthetic_only !== false,
+          reset_note: typeof parsed.reset_note === 'string' ? parsed.reset_note : null,
+        }
+      : null
+  } catch {
+    window.localStorage.removeItem(DEMO_SESSION_STORAGE_KEY)
+    return null
+  }
+}
 
-    let payload: unknown
+function storeSession(session: DemoSessionDto): DemoSessionDto {
+  if (typeof window !== 'undefined') window.localStorage.setItem(DEMO_SESSION_STORAGE_KEY, JSON.stringify(session))
+  return session
+}
+
+export function getStoredDemoSession(): DemoSessionDto | null {
+  return readStoredSession()
+}
+
+export function clearStoredDemoSession(): void {
+  if (typeof window !== 'undefined') window.localStorage.removeItem(DEMO_SESSION_STORAGE_KEY)
+}
+
+async function rawRequest<T>(path: string, init: RequestInit = {}, token?: string): Promise<T | null> {
+  const headers: Record<string, string> = init.headers instanceof Headers
+    ? Object.fromEntries(init.headers.entries())
+    : Array.isArray(init.headers)
+      ? Object.fromEntries(init.headers)
+      : { ...(init.headers ?? {}) }
+  const hasHeader = (name: string) => Object.keys(headers).some((key) => key.toLowerCase() === name.toLowerCase())
+  const body = init.body
+  if (body !== undefined && body !== null && !hasHeader('Content-Type')) headers['Content-Type'] = 'application/json'
+  const sessionToken = token ?? readStoredSession()?.session_token
+  if (sessionToken) headers[DEMO_SESSION_HEADER] = sessionToken
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers })
+  let payload: unknown = null
+  if (response.status !== 204) {
     try {
-      payload = response.status === 204 ? undefined : await response.json()
+      payload = await response.json()
     } catch {
-      throw new ApiError('The API returned an invalid JSON response.', response.status)
+      payload = null
     }
+  }
+  if (!response.ok) throw new ApiError(response.status, detailText(asRecord(payload).detail ?? payload), payload)
+  return response.status === 204 ? null : payload as T
+}
 
-    if (!response.ok) {
-      const apiError = errorPayloadMessage(payload)
-      throw new ApiError(apiError.message ?? `API request failed with status ${response.status}.`, response.status, apiError.code, apiError.details)
-    }
-
-    if (expectedStatus !== undefined && response.status !== expectedStatus) {
-      throw new ApiError(`The API returned HTTP ${response.status}; expected HTTP ${expectedStatus}.`, response.status)
-    }
-
-    return payload as T
+async function request<T>(path: string, init: RequestInit = {}, token?: string): Promise<T | null> {
+  const explicitToken = token !== undefined
+  try {
+    return await rawRequest<T>(path, init, token)
   } catch (error) {
-    if (error instanceof ApiError) throw error
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new ApiError('The API request timed out. Is the backend running?')
+    // A public deployment may require a sandbox token while local development
+    // intentionally does not. Bootstrap only after an anonymous 401 so normal
+    // tests and local API use do not create sessions unexpectedly.
+    if (!explicitToken && error instanceof ApiError && error.status === 401 && !path.startsWith('/api/demo/')) {
+      clearStoredDemoSession()
+      const session = await rawRequest<DemoSessionDto>('/api/demo/session', { method: 'POST' })
+      if (!session) throw new ApiError(502, 'The API returned an empty demo session.')
+      storeSession(session)
+      return rawRequest<T>(path, init, session.session_token)
     }
-    throw new ApiError('The backend is unreachable. Start the FastAPI server and try again.')
-  } finally {
-    window.clearTimeout(timeout)
+    throw error
   }
 }
 
-/** Convert FastAPI/Pydantic validation details into field-level messages. */
-export function getApiFieldErrors(error: unknown): Record<string, string> {
-  if (!(error instanceof ApiError)) return {}
-  const details = error.details
-  const errors: Record<string, string> = {}
-  if (Array.isArray(details)) {
-    details.forEach((item) => {
-      if (!isRecord(item) || !Array.isArray(item.loc)) return
-      const path = item.loc.filter((part): part is string | number => typeof part === 'string' || typeof part === 'number').filter((part) => part !== 'body').join('.')
-      const message = typeof item.msg === 'string' ? item.msg : 'This value is invalid.'
-      if (path) errors[path] = message
-    })
-  } else if (isRecord(details)) {
-    Object.entries(details).forEach(([key, value]) => {
-      if (typeof value === 'string') errors[key] = value
-      else if (Array.isArray(value) && typeof value[0] === 'string') errors[key] = value[0]
-    })
-  }
-  return errors
+function numberValue(value: unknown, fallback = 0): number {
+  const parsed = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
 }
 
-function contractError(resource: string): ApiError {
-  return new ApiError(`The ${resource} response does not match the canonical API contract.`)
-}
-
-function requiredString(value: unknown): value is string {
-  return typeof value === 'string'
-}
-
-function requiredInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value)
-}
-
-function requiredNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value)
-}
-
-function numericValue(value: unknown): number | undefined {
-  if (requiredNumber(value)) return value
-  if (typeof value === 'string' && value.trim() !== '') {
-    const parsed = Number(value)
-    return Number.isFinite(parsed) ? parsed : undefined
-  }
-  return undefined
-}
-
-function requiredNullableInteger(value: unknown): value is number | null {
-  return value === null || requiredInteger(value)
-}
-
-function requiredStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === 'string')
-}
-
-function requiredMetadata(value: unknown): value is AgentMetadata {
-  return isRecord(value)
-}
-
-function parseAgentStatus(value: unknown): AgentStatus | undefined {
-  return value === 'active' || value === 'inactive' || value === 'suspended' ? value : undefined
-}
-
-function parseAgentAvailability(value: unknown): AgentAvailability | undefined {
-  return value === 'available' || value === 'busy' || value === 'unavailable' ? value : undefined
-}
-
-function parseAgent(value: unknown): AgentSummaryDto | undefined {
-  if (!isRecord(value)) return undefined
-  const status = parseAgentStatus(value.status)
-  const availability = parseAgentAvailability(value.availability)
-  const capabilities = value.capabilities
-  const metadata = value.metadata
-  if (!requiredInteger(value.id) || !requiredString(value.external_id) || !requiredString(value.name) || !requiredString(value.description) || (value.endpoint_url !== null && !requiredString(value.endpoint_url)) || !status || !availability || !requiredStringArray(value.skills) || !requiredStringArray(value.task_categories) || !requiredStringArray(value.supported_output_formats) || (value.estimated_completion_minutes !== null && !requiredInteger(value.estimated_completion_minutes)) || !requiredMetadata(value.demo_performance_stats) || (capabilities !== undefined && !requiredStringArray(capabilities)) || (metadata !== undefined && !requiredMetadata(metadata)) || !requiredString(value.created_at)) return undefined
-  const agent: AgentSummaryDto = {
-    id: value.id,
-    external_id: value.external_id,
-    name: value.name,
-    description: value.description,
-    endpoint_url: value.endpoint_url,
-    status,
-    availability,
-    skills: value.skills,
-    task_categories: value.task_categories,
-    supported_output_formats: value.supported_output_formats,
-    estimated_completion_minutes: value.estimated_completion_minutes,
-    demo_performance_stats: value.demo_performance_stats,
-    created_at: value.created_at,
-  }
-  if (capabilities !== undefined) agent.capabilities = capabilities
-  if (metadata !== undefined) agent.metadata = metadata
-  return agent
-}
-
-function parseAgentDetail(payload: unknown): AgentDetailDto {
-  const agent = parseAgent(payload)
-  if (!agent) throw contractError('agent')
-  return agent
-}
-
-function parseAgents(payload: unknown): AgentListResponseDto {
-  if (!isRecord(payload) || !Array.isArray(payload.items) || !requiredInteger(payload.total)) throw contractError('agents')
-  const items = payload.items.map(parseAgent)
-  if (items.some((item): item is undefined => item === undefined)) throw contractError('agents')
-  return { items: items as AgentSummaryDto[], total: payload.total }
-}
-
-function parseDashboardMetrics(payload: unknown): DashboardMetricsDto {
-  if (!isRecord(payload) || !requiredInteger(payload.total_jobs) || !requiredInteger(payload.jobs_in_progress) || !requiredInteger(payload.completed_jobs) || !requiredInteger(payload.open_disputes) || !requiredString(payload.total_simulated_escrow_funded) || !requiredString(payload.total_simulated_escrow_settled)) throw contractError('dashboard metrics')
+function normalizeAgent(raw: unknown): AgentSummaryDto {
+  const value = asRecord(raw)
   return {
-    total_jobs: payload.total_jobs,
-    jobs_in_progress: payload.jobs_in_progress,
-    completed_jobs: payload.completed_jobs,
-    open_disputes: payload.open_disputes,
-    total_simulated_escrow_funded: payload.total_simulated_escrow_funded,
-    total_simulated_escrow_settled: payload.total_simulated_escrow_settled,
+    id: numberValue(value.id),
+    external_id: String(value.external_id ?? ''),
+    name: String(value.name ?? ''),
+    description: String(value.description ?? ''),
+    endpoint_url: typeof value.endpoint_url === 'string' ? value.endpoint_url : null,
+    status: value.status as AgentStatus,
+    availability: value.availability as AgentAvailability,
+    skills: Array.isArray(value.skills) ? value.skills.map(String) : [],
+    task_categories: Array.isArray(value.task_categories) ? value.task_categories.map(String) : [],
+    supported_output_formats: Array.isArray(value.supported_output_formats) ? value.supported_output_formats.map(String) : [],
+    estimated_completion_minutes: value.estimated_completion_minutes === null || value.estimated_completion_minutes === undefined ? null : numberValue(value.estimated_completion_minutes),
+    demo_performance_stats: asRecord(value.demo_performance_stats),
+    capabilities: Array.isArray(value.capabilities) ? value.capabilities.map(String) : undefined,
+    metadata: asRecord(value.metadata ?? value.metadata_json),
+    created_at: String(value.created_at ?? ''),
   }
 }
 
-const jobStatuses: JobStatus[] = ['open', 'assigned', 'in_progress', 'submitted', 'under_review', 'completed', 'disputed', 'cancelled']
-
-function parseJob(value: unknown): JobSummaryDto | undefined {
-  if (!isRecord(value)) return undefined
-  const requirements = value.requirements
-  if (!requiredInteger(value.id) || !requiredString(value.public_id) || !requiredNullableInteger(value.requester_agent_id) || !requiredNullableInteger(value.executor_agent_id) || !requiredNullableInteger(value.selected_agent_id) || !requiredString(value.title) || !requiredString(value.description) || !requiredStringArray(value.required_skills) || !requiredString(value.task_category) || !requiredString(value.expected_output) || !requiredStringArray(value.acceptance_criteria) || (value.additional_instructions !== null && !requiredString(value.additional_instructions)) || !requiredString(value.budget) || !requiredString(value.currency) || !requiredString(value.deadline) || !jobStatuses.includes(value.status as JobStatus) || (requirements !== undefined && !isRecord(requirements)) || !requiredString(value.created_at) || !requiredString(value.updated_at)) return undefined
-  const job: JobSummaryDto = {
-    id: value.id,
-    public_id: value.public_id,
-    requester_agent_id: value.requester_agent_id,
-    executor_agent_id: value.executor_agent_id,
-    selected_agent_id: value.selected_agent_id,
-    title: value.title,
-    description: value.description,
-    required_skills: value.required_skills,
-    task_category: value.task_category,
-    expected_output: value.expected_output,
-    acceptance_criteria: value.acceptance_criteria,
-    additional_instructions: value.additional_instructions,
-    budget: value.budget,
-    currency: value.currency,
-    deadline: value.deadline,
+function normalizeJob(raw: unknown): JobSummaryDto {
+  const value = asRecord(raw)
+  return {
+    id: numberValue(value.id),
+    public_id: String(value.public_id ?? ''),
+    requester_agent_id: value.requester_agent_id === null || value.requester_agent_id === undefined ? null : numberValue(value.requester_agent_id),
+    executor_agent_id: value.executor_agent_id === null || value.executor_agent_id === undefined ? null : numberValue(value.executor_agent_id),
+    selected_agent_id: value.selected_agent_id === null || value.selected_agent_id === undefined ? null : numberValue(value.selected_agent_id),
+    selected_match_run_id: typeof value.selected_match_run_id === 'string' ? value.selected_match_run_id : null,
+    selected_matching_score: value.selected_matching_score === null || value.selected_matching_score === undefined ? null : value.selected_matching_score as string | number,
+    selected_scoring_version: typeof value.selected_scoring_version === 'string' ? value.selected_scoring_version : null,
+    title: String(value.title ?? ''),
+    description: String(value.description ?? ''),
+    required_skills: Array.isArray(value.required_skills) ? value.required_skills.map(String) : [],
+    task_category: String(value.task_category ?? ''),
+    expected_output: String(value.expected_output ?? ''),
+    acceptance_criteria: Array.isArray(value.acceptance_criteria) ? value.acceptance_criteria.map(String) : [],
+    additional_instructions: typeof value.additional_instructions === 'string' ? value.additional_instructions : null,
+    budget: String(value.budget ?? '0.00'),
+    currency: String(value.currency ?? 'USD'),
+    deadline: String(value.deadline ?? ''),
     status: value.status as JobStatus,
-    created_at: value.created_at,
-    updated_at: value.updated_at,
+    requirements: asRecord(value.requirements),
+    created_at: String(value.created_at ?? ''),
+    updated_at: String(value.updated_at ?? ''),
   }
-  if (requirements !== undefined) job.requirements = requirements
-  return job
 }
 
-function parseJobDetail(payload: unknown): JobDetailDto {
-  const job = parseJob(payload)
-  if (!job) throw contractError('job')
-  return job
-}
-
-function parseJobs(payload: unknown): JobListResponseDto {
-  if (!isRecord(payload) || !Array.isArray(payload.items) || !requiredInteger(payload.total)) throw contractError('jobs')
-  const items = payload.items.map(parseJob)
-  if (items.some((item): item is undefined => item === undefined)) throw contractError('jobs')
-  return { items: items as JobSummaryDto[], total: payload.total }
-}
-
-const agreementStatuses: AgreementStatus[] = ['draft', 'proposed', 'revision_requested', 'revision_pending', 'accepted', 'rejected', 'expired', 'cancelled']
-const escrowStatuses: EscrowStatus[] = ['pending', 'funded', 'held', 'released', 'refunded', 'disputed']
-const ledgerEntryTypes: LedgerEntryType[] = ['funding', 'deposit', 'hold', 'release', 'refund', 'fee']
-
-/** Money values stay strings at the API boundary; reject exponent and unsafe decimal forms. */
-function safeFixedPointString(value: unknown): value is string {
-  return typeof value === 'string' && /^(?:0|[1-9]\d{0,15})(?:\.\d{1,2})?$/.test(value)
-}
-
-function parseAgreementHistoryEntry(value: unknown): AgreementHistoryEntryDto | undefined {
-  if (!isRecord(value)) return undefined
-  if (value.id !== undefined && !requiredInteger(value.id)) return undefined
-  if (value.version !== undefined && !requiredInteger(value.version)) return undefined
-  if (value.proposal_version !== undefined && !requiredInteger(value.proposal_version)) return undefined
-  if (value.status !== undefined && !agreementStatuses.includes(value.status as AgreementStatus)) return undefined
-  if (value.proposed_budget !== undefined && !requiredString(value.proposed_budget)) return undefined
-  if (value.proposed_deadline !== undefined && value.proposed_deadline !== null && !requiredString(value.proposed_deadline)) return undefined
-  if (value.currency !== undefined && !requiredString(value.currency)) return undefined
-  if (value.terms !== undefined && !isRecord(value.terms)) return undefined
-  if (value.reason !== undefined && value.reason !== null && !requiredString(value.reason)) return undefined
-  if (value.actor_agent_id !== undefined && !requiredNullableInteger(value.actor_agent_id)) return undefined
-  if (value.created_at !== undefined && !requiredString(value.created_at)) return undefined
-  return value as AgreementHistoryEntryDto
-}
-
-function parseAgreementHistory(payload: unknown): AgreementHistoryEntryDto[] {
-  const root = isRecord(payload) && payload.data !== undefined ? payload.data : payload
-  const values = Array.isArray(root)
-    ? root
-    : isRecord(root)
-      ? root.items ?? root.history ?? root.proposal_history
-      : undefined
-  if (!Array.isArray(values)) throw contractError('agreement history')
-  const history = values.map(parseAgreementHistoryEntry)
-  if (history.some((item): item is undefined => item === undefined)) throw contractError('agreement history')
-  return history as AgreementHistoryEntryDto[]
-}
-
-function agreementResponseValue(payload: unknown): unknown {
-  if (!isRecord(payload)) return payload
-  if (isRecord(payload.agreement)) return payload.agreement
-  if (isRecord(payload.data) && isRecord(payload.data.agreement)) return payload.data.agreement
-  if (isRecord(payload.data)) return payload.data
-  return payload
-}
-
-function parseAgreement(payload: unknown): AgreementDto {
-  const root = agreementResponseValue(payload)
-  if (!isRecord(root) || !requiredInteger(root.id) || !requiredInteger(root.job_id) || !requiredInteger(root.requester_agent_id) || !requiredInteger(root.executor_agent_id) || !safeFixedPointString(root.proposed_budget) || (root.proposed_deadline !== null && !requiredString(root.proposed_deadline)) || !requiredString(root.currency) || !agreementStatuses.includes(root.status as AgreementStatus) || !isRecord(root.terms) || !safeFixedPointString(root.amount) || !requiredString(root.created_at) || !requiredString(root.updated_at) || (root.accepted_at !== null && !requiredString(root.accepted_at))) throw contractError('agreement')
-  const historyValue = root.history ?? root.proposal_history
-  const history = historyValue === undefined ? [] : parseAgreementHistory(historyValue)
-  if (root.proposal_version !== undefined && (!requiredInteger(root.proposal_version) || root.proposal_version < 1)) throw contractError('agreement')
-  const acceptedVersion = root.accepted_version ?? root.accepted_agreement_version
-  if (acceptedVersion !== undefined && acceptedVersion !== null && (!requiredInteger(acceptedVersion) || acceptedVersion < 1)) throw contractError('agreement')
+function normalizeAgreement(raw: unknown): AgreementDto {
+  const value = asRecord(raw)
   return {
-    id: root.id,
-    job_id: root.job_id,
-    requester_agent_id: root.requester_agent_id,
-    executor_agent_id: root.executor_agent_id,
-    proposed_budget: root.proposed_budget,
-    proposed_deadline: root.proposed_deadline,
-    currency: root.currency,
-    status: root.status as AgreementStatus,
-    terms: root.terms as AgreementTermsDto,
-    proposal_version: root.proposal_version as number | undefined,
-    accepted_version: acceptedVersion as number | null | undefined,
-    history,
-    proposal_history: history,
-    amount: root.amount,
-    created_at: root.created_at,
-    updated_at: root.updated_at,
-    accepted_at: root.accepted_at,
+    id: numberValue(value.id),
+    job_id: numberValue(value.job_id),
+    requester_agent_id: numberValue(value.requester_agent_id),
+    executor_agent_id: numberValue(value.executor_agent_id),
+    proposed_budget: String(value.proposed_budget ?? value.amount ?? '0.00'),
+    proposed_deadline: typeof value.proposed_deadline === 'string' ? value.proposed_deadline : null,
+    currency: String(value.currency ?? 'USD'),
+    status: value.status as AgreementStatus,
+    terms: asRecord(value.terms) as AgreementTermsDto,
+    proposal_history: Array.isArray(value.proposal_history) ? value.proposal_history.map(asRecord) : [],
+    history: Array.isArray(value.history) ? value.history.map((item) => asRecord(item) as AgreementHistoryEntryDto) : undefined,
+    amount: String(value.amount ?? value.proposed_budget ?? '0.00'),
+    created_at: String(value.created_at ?? ''),
+    updated_at: String(value.updated_at ?? ''),
+    accepted_at: typeof value.accepted_at === 'string' ? value.accepted_at : null,
+    proposal_version: value.proposal_version === undefined ? undefined : numberValue(value.proposal_version),
+    accepted_version: value.accepted_version === null || value.accepted_version === undefined ? null : numberValue(value.accepted_version),
   }
 }
 
-function parseLedgerEntry(value: unknown): LedgerEntryDto | undefined {
-  if (!isRecord(value) || !requiredInteger(value.id) || !requiredInteger(value.escrow_id) || !requiredString(value.idempotency_key) || !ledgerEntryTypes.includes(value.entry_type as LedgerEntryType) || !safeFixedPointString(value.amount) || !requiredString(value.currency) || (value.reference !== null && value.reference !== undefined && !requiredString(value.reference)) || !requiredString(value.occurred_at)) return undefined
-  if (value.job_id !== undefined && !requiredNullableInteger(value.job_id)) return undefined
-  const entry: LedgerEntryDto = { id: value.id, escrow_id: value.escrow_id, idempotency_key: value.idempotency_key, entry_type: value.entry_type as LedgerEntryType, amount: value.amount, currency: value.currency, reference: value.reference === undefined ? null : value.reference, occurred_at: value.occurred_at }
-  if (value.job_id !== undefined) entry.job_id = value.job_id
-  return entry
-}
-
-function parseEscrow(payload: unknown): EscrowDto {
-  const root = isRecord(payload) && isRecord(payload.escrow) ? payload.escrow : isRecord(payload) && isRecord(payload.data) && isRecord(payload.data.escrow) ? payload.data.escrow : isRecord(payload) && isRecord(payload.data) ? payload.data : payload
-  if (!isRecord(root)) throw contractError('escrow')
-  const fundedAmount = root.funded_amount
-  const amount = root.amount ?? root.accepted_amount ?? root.funded_amount
-  const ledgerEntriesValue = root.ledger_entries ?? []
-  if (!requiredInteger(root.id) || !requiredInteger(root.job_id) || !requiredInteger(root.agreement_id) || (fundedAmount !== null && fundedAmount !== undefined && !safeFixedPointString(fundedAmount)) || !requiredString(root.currency) || !escrowStatuses.includes(root.status as EscrowStatus) || (root.provider_reference !== null && root.provider_reference !== undefined && !requiredString(root.provider_reference)) || (root.funded_at !== null && root.funded_at !== undefined && !requiredString(root.funded_at)) || (root.released_at !== null && root.released_at !== undefined && !requiredString(root.released_at)) || (root.settled_at !== null && root.settled_at !== undefined && !requiredString(root.settled_at)) || !requiredString(root.created_at) || !requiredString(root.updated_at) || !safeFixedPointString(amount) || !Array.isArray(ledgerEntriesValue)) throw contractError('escrow')
-  const ledgerEntries = ledgerEntriesValue.map(parseLedgerEntry)
-  if (ledgerEntries.some((item): item is undefined => item === undefined)) throw contractError('escrow')
-  return { id: root.id, job_id: root.job_id, agreement_id: root.agreement_id, funded_amount: fundedAmount === undefined ? null : fundedAmount as string | null, currency: root.currency, status: root.status as EscrowStatus, provider_reference: root.provider_reference === undefined ? null : root.provider_reference, funded_at: root.funded_at === undefined ? null : root.funded_at, released_at: root.released_at === undefined ? null : root.released_at, settled_at: root.settled_at === undefined ? null : root.settled_at, created_at: root.created_at, updated_at: root.updated_at, amount, ledger_entries: ledgerEntries as LedgerEntryDto[] }
-}
-
-function parseHealth(payload: unknown): HealthResponse {
-  if (!isRecord(payload) || !requiredString(payload.status) || !requiredString(payload.service) || !requiredString(payload.environment) || !requiredString(payload.timestamp)) throw contractError('health')
-  return { status: payload.status, service: payload.service, environment: payload.environment, timestamp: payload.timestamp }
-}
-
-const executionStatuses: ExecutionStatus[] = ['blocked', 'ready', 'awaiting_submission', 'awaiting_verification', 'retry_available', 'manual_review', 'settlement_ready', 'completed', 'disputed', 'cancelled']
-const verificationResults: VerificationResult[] = ['pending', 'passed', 'failed', 'manual_review', 'needs_revision']
-const verificationStatuses: VerificationStatus[] = ['pending', 'passed', 'failed']
-
-function parseSubmission(payload: unknown): SubmissionDto | undefined {
-  if (!isRecord(payload) || !requiredInteger(payload.id) || !requiredInteger(payload.job_id) || !requiredInteger(payload.agent_id) || !requiredInteger(payload.version) || !requiredString(payload.artifact_url) || (payload.content !== null && payload.content !== undefined && !requiredString(payload.content)) || !requiredString(payload.submitted_output) || !isRecord(payload.evidence) || (payload.notes !== null && payload.notes !== undefined && !requiredString(payload.notes)) || !['pending', 'accepted', 'rejected'].includes(payload.status as string) || !requiredString(payload.submitted_at)) return undefined
-  return { id: payload.id, job_id: payload.job_id, agent_id: payload.agent_id, version: payload.version, artifact_url: payload.artifact_url, content: payload.content === undefined ? null : payload.content, submitted_output: payload.submitted_output, evidence: payload.evidence, notes: payload.notes === undefined ? null : payload.notes, status: payload.status as SubmissionStatus, submitted_at: payload.submitted_at }
-}
-
-function parseVerificationCheck(payload: unknown): VerificationCheckDto | undefined {
-  if (!isRecord(payload) || !requiredString(payload.name) || !['passed', 'failed', 'manual_review'].includes(payload.status as string) || typeof payload.passed !== 'boolean' || !requiredString(payload.explanation) || !('evidence' in payload)) return undefined
-  return { name: payload.name, status: payload.status as VerificationCheckDto['status'], passed: payload.passed, explanation: payload.explanation, evidence: payload.evidence }
-}
-
-function parseVerification(payload: unknown): VerificationDto | undefined {
-  if (!isRecord(payload) || !requiredInteger(payload.id) || !requiredInteger(payload.job_id) || !requiredInteger(payload.submission_id) || !requiredInteger(payload.submission_version) || !verificationStatuses.includes(payload.status as VerificationStatus) || !verificationResults.includes(payload.overall_result as VerificationResult) || !Array.isArray(payload.individual_checks) || !requiredStringArray(payload.reasons) || !['automated', 'human', 'hybrid'].includes(payload.evaluator_type as string) || (payload.score !== null && payload.score !== undefined && !safeFixedPointString(payload.score)) || !isRecord(payload.feedback) || (payload.evaluated_at !== null && payload.evaluated_at !== undefined && !requiredString(payload.evaluated_at)) || (payload.verified_at !== null && payload.verified_at !== undefined && !requiredString(payload.verified_at))) return undefined
-  const checks = payload.individual_checks.map(parseVerificationCheck)
-  if (checks.some((item): item is undefined => item === undefined)) return undefined
-  return { id: payload.id, job_id: payload.job_id, submission_id: payload.submission_id, submission_version: payload.submission_version, status: payload.status as VerificationStatus, overall_result: payload.overall_result as VerificationResult, individual_checks: checks as VerificationCheckDto[], reasons: payload.reasons, evaluator_type: payload.evaluator_type as VerificationDto['evaluator_type'], score: payload.score === undefined ? null : payload.score, feedback: payload.feedback, evaluated_at: payload.evaluated_at === undefined ? null : payload.evaluated_at, verified_at: payload.verified_at === undefined ? null : payload.verified_at }
-}
-
-const disputeCategories: DisputeCategory[] = ['failed_verification', 'deliverable_incomplete', 'agreement_mismatch', 'deadline_issue', 'other']
-const disputeStatuses: DisputeStatus[] = ['open', 'under_review', 'resolved', 'rejected']
-const disputeResolutions: DisputeResolution[] = ['release', 'refund', 'reject']
-
-function parseDispute(payload: unknown): DisputeDto | undefined {
-  if (!isRecord(payload) || !requiredInteger(payload.id) || !requiredInteger(payload.job_id) || !requiredNullableInteger(payload.escrow_id) || !requiredInteger(payload.raised_by_agent_id) || !disputeCategories.includes(payload.category as DisputeCategory) || !disputeStatuses.includes(payload.status as DisputeStatus) || !requiredString(payload.reason) || !requiredString(payload.description) || !isRecord(payload.evidence) || !requiredNullableInteger(payload.submission_id) || !requiredNullableInteger(payload.verification_id) || !requiredString(payload.created_at) || !requiredString(payload.updated_at) || (payload.previous_job_status !== null && payload.previous_job_status !== undefined && !jobStatuses.includes(payload.previous_job_status as JobStatus)) || (payload.previous_escrow_status !== null && payload.previous_escrow_status !== undefined && !escrowStatuses.includes(payload.previous_escrow_status as EscrowStatus)) || (payload.resolution !== null && payload.resolution !== undefined && !disputeResolutions.includes(payload.resolution as DisputeResolution)) || (payload.resolution_rationale !== null && payload.resolution_rationale !== undefined && !requiredString(payload.resolution_rationale)) || (payload.resolved_by_operator !== null && payload.resolved_by_operator !== undefined && !requiredString(payload.resolved_by_operator)) || (payload.reviewed_at !== null && payload.reviewed_at !== undefined && !requiredString(payload.reviewed_at)) || (payload.resolved_at !== null && payload.resolved_at !== undefined && !requiredString(payload.resolved_at)) || !isRecord(payload.agreement_terms) || !isRecord(payload.job_requirements)) return undefined
-  const submission = payload.submission === null || payload.submission === undefined ? null : parseSubmission(payload.submission)
-  const verification = payload.verification === null || payload.verification === undefined ? null : parseVerification(payload.verification)
-  const eventsValue = payload.events === undefined ? [] : parseJobEvents(payload.events)
-  if (payload.submission !== null && payload.submission !== undefined && !submission) return undefined
-  if (payload.verification !== null && payload.verification !== undefined && !verification) return undefined
-  return { id: payload.id, job_id: payload.job_id, escrow_id: payload.escrow_id, raised_by_agent_id: payload.raised_by_agent_id, category: payload.category as DisputeCategory, status: payload.status as DisputeStatus, reason: payload.reason, description: payload.description, evidence: payload.evidence, submission_id: payload.submission_id, verification_id: payload.verification_id, previous_job_status: payload.previous_job_status === undefined ? null : payload.previous_job_status as JobStatus | null, previous_escrow_status: payload.previous_escrow_status === undefined ? null : payload.previous_escrow_status as EscrowStatus | null, resolution: payload.resolution === undefined ? null : payload.resolution as DisputeResolution | null, resolution_rationale: payload.resolution_rationale === undefined ? null : payload.resolution_rationale, resolved_by_operator: payload.resolved_by_operator === undefined ? null : payload.resolved_by_operator, created_at: payload.created_at, reviewed_at: payload.reviewed_at === undefined ? null : payload.reviewed_at, resolved_at: payload.resolved_at === undefined ? null : payload.resolved_at, updated_at: payload.updated_at, agreement_terms: payload.agreement_terms, job_requirements: payload.job_requirements, submission: submission ?? null, verification: verification ?? null, events: eventsValue }
-}
-
-function parseDisputes(payload: unknown): DisputeDto[] {
-  if (!Array.isArray(payload)) throw contractError('disputes')
-  const disputes = payload.map(parseDispute)
-  if (disputes.some((item): item is undefined => item === undefined)) throw contractError('disputes')
-  return disputes as DisputeDto[]
-}
-
-function parseDisputeResponse(payload: unknown): DisputeDto {
-  const dispute = parseDispute(payload)
-  if (!dispute) throw contractError('dispute')
-  return dispute
-}
-
-function parseExecution(payload: unknown): ExecutionDto {
-  if (!isRecord(payload) || !requiredInteger(payload.job_id) || !jobStatuses.includes(payload.job_status as JobStatus) || !executionStatuses.includes(payload.execution_status as ExecutionStatus) || !requiredNullableInteger(payload.selected_agent_id) || !requiredNullableInteger(payload.executor_agent_id) || !requiredNullableInteger(payload.agreement_id) || !requiredNullableInteger(payload.accepted_agreement_version) || (payload.escrow_status !== null && payload.escrow_status !== undefined && !escrowStatuses.includes(payload.escrow_status as EscrowStatus)) || payload.executor_type !== 'local_demo' || typeof payload.can_start !== 'boolean' || typeof payload.can_submit !== 'boolean' || typeof payload.can_verify !== 'boolean' || !requiredString(payload.start_reason) || !requiredString(payload.submit_reason) || !requiredString(payload.verify_reason) || (payload.started_at !== null && payload.started_at !== undefined && !requiredString(payload.started_at)) || !requiredNullableInteger(payload.latest_submission_version) || (payload.latest_verification_result !== null && payload.latest_verification_result !== undefined && !verificationResults.includes(payload.latest_verification_result as VerificationResult))) throw contractError('execution')
-  return { job_id: payload.job_id, job_status: payload.job_status as JobStatus, execution_status: payload.execution_status as ExecutionStatus, selected_agent_id: payload.selected_agent_id, executor_agent_id: payload.executor_agent_id, agreement_id: payload.agreement_id, accepted_agreement_version: payload.accepted_agreement_version, escrow_status: payload.escrow_status === undefined ? null : payload.escrow_status as EscrowStatus | null, executor_type: 'local_demo', can_start: payload.can_start, can_submit: payload.can_submit, can_verify: payload.can_verify, start_reason: payload.start_reason, submit_reason: payload.submit_reason, verify_reason: payload.verify_reason, started_at: payload.started_at === undefined ? null : payload.started_at, latest_submission_version: payload.latest_submission_version, latest_verification_result: payload.latest_verification_result === undefined ? null : payload.latest_verification_result as VerificationResult | null }
-}
-
-function parseSubmissions(payload: unknown): SubmissionDto[] {
-  if (!Array.isArray(payload)) throw contractError('submissions')
-  const submissions = payload.map(parseSubmission)
-  if (submissions.some((item): item is undefined => item === undefined)) throw contractError('submissions')
-  return submissions as SubmissionDto[]
-}
-
-function parseVerificationResponse(payload: unknown): VerificationDto {
-  const verification = parseVerification(payload)
-  if (!verification) throw contractError('verification')
-  return verification
-}
-
-function parseDashboardExecution(payload: unknown): DashboardExecutionDto {
-  if (!isRecord(payload) || !requiredInteger(payload.jobs_running) || !requiredInteger(payload.jobs_awaiting_submission) || !requiredInteger(payload.jobs_awaiting_verification) || !requiredInteger(payload.jobs_eligible_for_settlement) || !Array.isArray(payload.recent_submissions) || !Array.isArray(payload.recent_verifications)) throw contractError('dashboard execution')
-  const submissions = payload.recent_submissions.map(parseSubmission)
-  const verifications = payload.recent_verifications.map(parseVerification)
-  if (submissions.some((item): item is undefined => item === undefined) || verifications.some((item): item is undefined => item === undefined)) throw contractError('dashboard execution')
-  return { jobs_running: payload.jobs_running, jobs_awaiting_submission: payload.jobs_awaiting_submission, jobs_awaiting_verification: payload.jobs_awaiting_verification, jobs_eligible_for_settlement: payload.jobs_eligible_for_settlement, recent_submissions: submissions as SubmissionDto[], recent_verifications: verifications as VerificationDto[] }
-}
-
-function parseLedger(payload: unknown): LedgerEntryDto[] {
-  if (payload === undefined) return []
-  const root = isRecord(payload) && payload.data !== undefined ? payload.data : payload
-  const values = Array.isArray(root)
-    ? root
-    : isRecord(root)
-      ? root.entries ?? root.items ?? root.ledger_entries ?? root.ledger
-      : undefined
-  if (!Array.isArray(values)) throw contractError('escrow ledger')
-  const entries = values.map(parseLedgerEntry)
-  if (entries.some((item): item is undefined => item === undefined)) throw contractError('escrow ledger')
-  return entries as LedgerEntryDto[]
-}
-
-function parseJobEvents(payload: unknown): JobEventDto[] {
-  if (!Array.isArray(payload)) throw contractError('job events')
-  const events = payload.map((value) => {
-    if (!isRecord(value) || !requiredInteger(value.id) || !requiredNullableInteger(value.job_id) || !requiredNullableInteger(value.actor_agent_id) || !requiredString(value.event_type) || !requiredString(value.description) || !isRecord(value.data) || !requiredString(value.created_at)) return undefined
-    return { id: value.id, job_id: value.job_id, actor_agent_id: value.actor_agent_id, event_type: value.event_type, description: value.description, data: value.data, created_at: value.created_at }
-  })
-  if (events.some((item): item is undefined => item === undefined)) throw contractError('job events')
-  return events as JobEventDto[]
-}
-
-const defaultMatchingFormula: MatchingScoringFormulaDto = {
-  skills: 50,
-  category: 20,
-  availability_deadline: 20,
-  budget: 10,
-}
-
-function optionalString(value: unknown): string | null | undefined {
-  return value === null ? null : typeof value === 'string' ? value : undefined
-}
-
-function matchingNumber(record: RecordValue, names: string[]): number | undefined {
-  for (const name of names) {
-    const parsed = numericValue(record[name])
-    if (parsed !== undefined) return parsed
-  }
-  return undefined
-}
-
-function parseMatchingFormula(value: unknown): MatchingScoringFormulaDto | undefined {
-  if (value === undefined) return defaultMatchingFormula
-  if (!isRecord(value)) return undefined
-  const availability = matchingNumber(value, ['availability', 'availability_weight', 'availability_score'])
-  const deadline = matchingNumber(value, ['deadline', 'deadline_weight', 'deadline_score'])
-  const availabilityDeadline = matchingNumber(value, ['availability_deadline', 'availability_and_deadline', 'availability_deadline_weight']) ?? (availability !== undefined && deadline !== undefined ? availability + deadline : availability)
-  const formula = {
-    skills: matchingNumber(value, ['skills', 'skill_match', 'skills_weight', 'skill_match_weight']),
-    category: matchingNumber(value, ['category', 'category_match', 'category_weight', 'category_match_weight']),
-    availability_deadline: availabilityDeadline,
-    budget: matchingNumber(value, ['budget', 'budget_weight', 'budget_match', 'budget_match_weight']),
-  }
-  return formula.skills !== undefined && formula.category !== undefined && formula.availability_deadline !== undefined && formula.budget !== undefined
-    ? normalizeMatchingFormula(formula as MatchingScoringFormulaDto)
-    : undefined
-}
-
-/** Matching services may persist weights as normalized fractions or as points. */
-function normalizeMatchingFormula(formula: MatchingScoringFormulaDto): MatchingScoringFormulaDto {
-  const values = Object.values(formula)
-  if (!values.some((value) => value > 0) || !values.every((value) => value >= 0 && value <= 1)) return formula
-  const total = values.reduce((sum, value) => sum + value, 0)
-  if (total <= 0) return formula
+function normalizeLedger(raw: unknown): LedgerEntryDto {
+  const value = asRecord(raw)
   return {
-    skills: (formula.skills / total) * 100,
-    category: (formula.category / total) * 100,
-    availability_deadline: (formula.availability_deadline / total) * 100,
-    budget: (formula.budget / total) * 100,
+    id: numberValue(value.id),
+    escrow_id: numberValue(value.escrow_id),
+    job_id: value.job_id === null || value.job_id === undefined ? null : numberValue(value.job_id),
+    idempotency_key: String(value.idempotency_key ?? ''),
+    entry_type: value.entry_type as LedgerEntryDto['entry_type'],
+    amount: String(value.amount ?? '0.00'),
+    currency: String(value.currency ?? 'USD'),
+    reference: typeof value.reference === 'string' ? value.reference : null,
+    occurred_at: String(value.occurred_at ?? ''),
   }
 }
 
-function normalizeMatchingCompatibility(compatibility: MatchingCompatibilityDto): MatchingCompatibilityDto {
-  const values = Object.values(compatibility)
-  if (!values.some((value) => value > 0) || !values.every((value) => value >= 0 && value <= 1)) return compatibility
+function normalizeEscrow(raw: unknown): EscrowDto {
+  const value = asRecord(raw)
   return {
-    skills: compatibility.skills * 100,
-    category: compatibility.category * 100,
-    availability_deadline: compatibility.availability_deadline * 100,
-    budget: compatibility.budget * 100,
+    id: numberValue(value.id),
+    job_id: numberValue(value.job_id),
+    agreement_id: numberValue(value.agreement_id),
+    accepted_agreement_version: value.accepted_agreement_version === null || value.accepted_agreement_version === undefined ? null : numberValue(value.accepted_agreement_version),
+    agreement_version: value.agreement_version === null || value.agreement_version === undefined ? null : numberValue(value.agreement_version),
+    accepted_amount: typeof value.accepted_amount === 'string' ? value.accepted_amount : undefined,
+    accepted_currency: typeof value.accepted_currency === 'string' ? value.accepted_currency : undefined,
+    funded_amount: value.funded_amount === null || value.funded_amount === undefined ? null : String(value.funded_amount),
+    currency: String(value.currency ?? value.accepted_currency ?? 'USD'),
+    status: value.status as EscrowStatus,
+    funding_state: typeof value.funding_state === 'string' ? value.funding_state : undefined,
+    provider_reference: typeof value.provider_reference === 'string' ? value.provider_reference : null,
+    funded_at: typeof value.funded_at === 'string' ? value.funded_at : null,
+    released_at: typeof value.released_at === 'string' ? value.released_at : null,
+    settled_at: typeof value.settled_at === 'string' ? value.settled_at : null,
+    created_at: String(value.created_at ?? ''),
+    updated_at: String(value.updated_at ?? ''),
+    amount: String(value.amount ?? value.accepted_amount ?? '0.00'),
+    ledger_entries: Array.isArray(value.ledger_entries) ? value.ledger_entries.map(normalizeLedger) : [],
   }
 }
 
-function matchingAgentReference(value: unknown, fallbackId?: unknown, fallbackName?: unknown): { id: number; name: string; external_id: string | null } | undefined {
-  if (isRecord(value) && requiredInteger(value.id) && requiredString(value.name)) {
-    return { id: value.id, name: value.name, external_id: optionalString(value.external_id) ?? null }
+function normalizeExecution(raw: unknown): ExecutionDto {
+  const value = asRecord(raw)
+  return {
+    job_id: numberValue(value.job_id),
+    job_status: value.job_status as JobStatus,
+    execution_status: value.execution_status as ExecutionStatus,
+    selected_agent_id: value.selected_agent_id === null || value.selected_agent_id === undefined ? null : numberValue(value.selected_agent_id),
+    executor_agent_id: value.executor_agent_id === null || value.executor_agent_id === undefined ? null : numberValue(value.executor_agent_id),
+    agreement_id: value.agreement_id === null || value.agreement_id === undefined ? null : numberValue(value.agreement_id),
+    accepted_agreement_version: value.accepted_agreement_version === null || value.accepted_agreement_version === undefined ? null : numberValue(value.accepted_agreement_version),
+    escrow_status: value.escrow_status === null || value.escrow_status === undefined ? null : value.escrow_status as EscrowStatus,
+    executor_type: 'local_demo',
+    can_start: Boolean(value.can_start),
+    can_submit: Boolean(value.can_submit),
+    can_verify: Boolean(value.can_verify),
+    start_reason: String(value.start_reason ?? ''),
+    submit_reason: String(value.submit_reason ?? ''),
+    verify_reason: String(value.verify_reason ?? ''),
+    started_at: typeof value.started_at === 'string' ? value.started_at : null,
+    latest_submission_version: value.latest_submission_version === null || value.latest_submission_version === undefined ? null : numberValue(value.latest_submission_version),
+    latest_verification_result: value.latest_verification_result === null || value.latest_verification_result === undefined ? null : value.latest_verification_result as VerificationDto['overall_result'],
   }
-  if (requiredInteger(fallbackId) && requiredString(fallbackName)) {
-    return { id: fallbackId, name: fallbackName, external_id: null }
-  }
-  return undefined
 }
 
-function parseMatchingCompatibility(value: unknown): MatchingCompatibilityDto | undefined {
-  if (!isRecord(value)) return undefined
-  const component = (names: string[]): number | undefined => {
-    const direct = matchingNumber(value, names)
-    if (direct !== undefined) return direct
-    for (const name of names) {
-      const nested = value[name]
-      if (isRecord(nested)) {
-        const contribution = matchingNumber(nested, ['contribution', 'weighted_contribution'])
-        if (contribution !== undefined) return contribution
-      }
+function normalizeSubmission(raw: unknown): SubmissionDto {
+  const value = asRecord(raw)
+  const metadata = asRecord(value.metadata)
+  return {
+    id: numberValue(value.id),
+    job_id: numberValue(value.job_id),
+    agent_id: numberValue(value.agent_id),
+    version: numberValue(value.version),
+    artifact_url: String(value.artifact_url ?? ''),
+    content: typeof value.content === 'string' ? value.content : null,
+    submitted_output: String(value.submitted_output ?? value.content ?? ''),
+    evidence: asRecord(value.evidence),
+    notes: typeof value.notes === 'string' ? value.notes : typeof metadata.notes === 'string' ? metadata.notes : null,
+    status: value.status as SubmissionDto['status'],
+    submitted_at: String(value.submitted_at ?? ''),
+  }
+}
+
+function normalizeVerification(raw: unknown): VerificationDto {
+  const value = asRecord(raw)
+  const checks = Array.isArray(value.individual_checks) ? value.individual_checks.map((item) => {
+    const check = asRecord(item)
+    return {
+      name: String(check.name ?? 'Check'),
+      status: String(check.status ?? 'unknown'),
+      passed: typeof check.passed === 'boolean' ? check.passed : undefined,
+      explanation: String(check.explanation ?? ''),
+      evidence: check.evidence,
     }
-    return undefined
-  }
-  const availability = component(['availability', 'availability_score'])
-  const deadline = component(['deadline', 'deadline_score'])
-  const availabilityDeadline = component(['availability_deadline', 'availability_and_deadline', 'availability_deadline_score']) ?? (availability !== undefined && deadline !== undefined ? availability + deadline : availability)
-  const compatibility = {
-    skills: component(['skills', 'skill_match', 'skills_score', 'skill_match_score', 'skill_score']),
-    category: component(['category', 'category_match', 'category_score', 'category_match_score']),
-    availability_deadline: availabilityDeadline,
-    budget: component(['budget', 'budget_score', 'budget_match', 'budget_match_score']),
-  }
-  return compatibility.skills !== undefined && compatibility.category !== undefined && compatibility.availability_deadline !== undefined && compatibility.budget !== undefined
-    ? normalizeMatchingCompatibility(compatibility as MatchingCompatibilityDto)
-    : undefined
-}
-
-function parseMatchingCandidate(value: unknown): MatchingCandidateDto | undefined {
-  if (!isRecord(value)) return undefined
-  const agent = matchingAgentReference(value.agent, value.agent_id ?? value.id, value.agent_name ?? value.name)
-  const compatibility = parseMatchingCompatibility(value.compatibility ?? value.breakdown ?? value.score_breakdown ?? value.compatibility_breakdown)
-  const matchedSkills = value.matched_skills ?? value.skills_matched
-  const missingSkills = value.missing_skills ?? value.skills_missing
-  const warnings = value.warnings ?? []
-  const rawScore = numericValue(value.score ?? value.total_score)
-  const score = rawScore !== undefined && rawScore >= 0 && rawScore <= 1 ? rawScore * 100 : rawScore
-  const explanation = value.explanation ?? value.reason
-  if (!agent || !requiredNumber(score) || !requiredStringArray(matchedSkills) || !requiredStringArray(missingSkills) || !compatibility || !requiredString(explanation) || !requiredStringArray(warnings)) return undefined
+  }) : []
   return {
-    agent_id: agent.id,
-    agent_name: agent.name,
-    agent_external_id: agent.external_id,
-    score,
-    matched_skills: matchedSkills,
-    missing_skills: missingSkills,
-    compatibility,
-    explanation,
-    warnings,
+    id: numberValue(value.id),
+    job_id: numberValue(value.job_id),
+    submission_id: numberValue(value.submission_id),
+    submission_version: numberValue(value.submission_version),
+    status: value.status as VerificationDto['status'],
+    overall_result: value.overall_result as VerificationDto['overall_result'],
+    individual_checks: checks,
+    reasons: Array.isArray(value.reasons) ? value.reasons.map(String) : [],
+    evaluator_type: value.evaluator_type as VerificationDto['evaluator_type'],
+    score: value.score === null || value.score === undefined ? null : String(value.score),
+    feedback: asRecord(value.feedback),
+    evaluated_at: typeof value.evaluated_at === 'string' ? value.evaluated_at : null,
+    verified_at: typeof value.verified_at === 'string' ? value.verified_at : null,
   }
 }
 
-function parseExcludedAgent(value: unknown): ExcludedAgentDto | undefined {
-  if (!isRecord(value)) return undefined
-  const agent = matchingAgentReference(value.agent, value.agent_id ?? value.id, value.agent_name ?? value.name)
-  const reason = value.reason ?? value.exclusion_reason
-  const reasons = value.reasons ?? value.exclusion_reasons ?? (reason === undefined ? undefined : [reason])
-  if (!agent || !requiredStringArray(reasons)) return undefined
-  return { agent_id: agent.id, agent_name: agent.name, agent_external_id: agent.external_id, reasons }
+function normalizeEvent(raw: unknown): JobEventDto {
+  const value = asRecord(raw)
+  return {
+    id: numberValue(value.id),
+    job_id: value.job_id === null || value.job_id === undefined ? null : numberValue(value.job_id),
+    actor_agent_id: value.actor_agent_id === null || value.actor_agent_id === undefined ? null : numberValue(value.actor_agent_id),
+    event_type: String(value.event_type ?? ''),
+    description: String(value.description ?? ''),
+    data: asRecord(value.data),
+    created_at: String(value.created_at ?? ''),
+  }
 }
 
-function parseMatching(payload: unknown): MatchingResponseDto {
-  const root = isRecord(payload) && isRecord(payload.data) ? payload.data : payload
-  if (!isRecord(root)) throw contractError('matching')
-  const metadataSource = isRecord(root.metadata) ? root.metadata : isRecord(root.matching_metadata) ? root.matching_metadata : root
-  const runId = root.run_id ?? metadataSource.run_id
-  const scoringVersion = root.scoring_version ?? metadataSource.scoring_version
-  const formulaValue = root.scoring_formula ?? root.scoring_weights ?? root.weights ?? metadataSource.scoring_formula ?? metadataSource.scoring_weights ?? metadataSource.weights ?? metadataSource.formula
-  const formula = parseMatchingFormula(formulaValue)
-  const candidatesValue = root.candidates ?? root.eligible_candidates
-  const excludedValue = root.excluded_agents ?? root.excluded
-  const jobId = root.job_id ?? metadataSource.job_id ?? (isRecord(root.job) ? root.job.id : undefined)
-  if (!requiredInteger(jobId) || !requiredString(runId) || !requiredString(scoringVersion) || !formula || !Array.isArray(candidatesValue) || !Array.isArray(excludedValue)) throw contractError('matching')
-  const candidates = candidatesValue.map(parseMatchingCandidate)
-  const excludedAgents = excludedValue.map(parseExcludedAgent)
-  if (candidates.some((item): item is undefined => item === undefined) || excludedAgents.some((item): item is undefined => item === undefined)) throw contractError('matching')
+function normalizeDispute(raw: unknown): DisputeDto {
+  const value = asRecord(raw)
   return {
-    job_id: jobId,
+    id: numberValue(value.id),
+    job_id: numberValue(value.job_id),
+    escrow_id: value.escrow_id === null || value.escrow_id === undefined ? null : numberValue(value.escrow_id),
+    raised_by_agent_id: numberValue(value.raised_by_agent_id),
+    category: value.category as DisputeCategory,
+    status: value.status as DisputeStatus,
+    reason: String(value.reason ?? ''),
+    description: String(value.description ?? ''),
+    evidence: asRecord(value.evidence),
+    submission_id: value.submission_id === null || value.submission_id === undefined ? null : numberValue(value.submission_id),
+    verification_id: value.verification_id === null || value.verification_id === undefined ? null : numberValue(value.verification_id),
+    previous_job_status: value.previous_job_status === null || value.previous_job_status === undefined ? null : value.previous_job_status as JobStatus,
+    previous_escrow_status: value.previous_escrow_status === null || value.previous_escrow_status === undefined ? null : value.previous_escrow_status as EscrowStatus,
+    resolution: value.resolution === null || value.resolution === undefined ? null : value.resolution as DisputeResolution,
+    resolution_rationale: typeof value.resolution_rationale === 'string' ? value.resolution_rationale : null,
+    resolved_by_operator: typeof value.resolved_by_operator === 'string' ? value.resolved_by_operator : null,
+    created_at: String(value.created_at ?? ''),
+    reviewed_at: typeof value.reviewed_at === 'string' ? value.reviewed_at : null,
+    resolved_at: typeof value.resolved_at === 'string' ? value.resolved_at : null,
+    updated_at: String(value.updated_at ?? ''),
+    agreement_terms: asRecord(value.agreement_terms),
+    job_requirements: asRecord(value.job_requirements),
+    submission: value.submission ? normalizeSubmission(value.submission) : null,
+    verification: value.verification ? normalizeVerification(value.verification) : null,
+    events: Array.isArray(value.events) ? value.events.map(normalizeEvent) : [],
+  }
+}
+
+function normalizeCandidate(raw: unknown, eligibleDefault = true): MatchingCandidateDto {
+  const value = asRecord(raw)
+  const breakdown = asRecord(value.breakdown)
+  const compatibility = asRecord(value.compatibility)
+  const contribution = (key: string, fallback: unknown) => {
+    const component = asRecord(breakdown[key])
+    return numberValue(compatibility[key] ?? component.contribution ?? fallback)
+  }
+  const reasons = Array.isArray(value.reasons) ? value.reasons.map(String) : Array.isArray(value.exclusion_reasons) ? value.exclusion_reasons.map(String) : []
+  return {
+    agent_id: numberValue(value.agent_id),
+    agent_name: String(value.agent_name ?? ''),
+    agent_external_id: typeof value.agent_external_id === 'string' ? value.agent_external_id : null,
+    score: numberValue(value.score),
+    matched_skills: Array.isArray(value.matched_skills) ? value.matched_skills.map(String) : [],
+    missing_skills: Array.isArray(value.missing_skills) ? value.missing_skills.map(String) : [],
+    compatibility: {
+      skills: contribution('skills', 0),
+      category: contribution('category', 0),
+      availability_deadline: contribution('availability_deadline', 0),
+      budget: contribution('budget', 0),
+    },
+    breakdown,
+    explanation: String(value.explanation ?? ''),
+    warnings: Array.isArray(value.warnings) ? value.warnings.map(String) : [],
+    eligible: typeof value.eligible === 'boolean' ? value.eligible : eligibleDefault,
+    exclusion_reasons: reasons,
+    reasons,
+  }
+}
+
+function normalizeMatching(raw: unknown): MatchingResponseDto {
+  const value = asRecord(raw)
+  const candidatesValue = value.candidates
+  const excludedValue = value.excluded_agents
+  if (!Array.isArray(candidatesValue) || !Array.isArray(excludedValue)) {
+    throw new ApiError(502, 'matching response does not match the canonical API contract', raw)
+  }
+  const rawMetadata = asRecord(value.metadata)
+  const runId = String(rawMetadata.run_id ?? value.run_id ?? '')
+  const scoringVersion = String(rawMetadata.scoring_version ?? value.scoring_version ?? '')
+  if (!runId || !scoringVersion) throw new ApiError(502, 'matching response does not match the canonical API contract', raw)
+  const formulaRecord = asRecord(rawMetadata.scoring_formula ?? value.scoring_formula)
+  const formula = {
+    skills: numberValue(formulaRecord.skills, 50),
+    category: numberValue(formulaRecord.category, 20),
+    availability_deadline: numberValue(formulaRecord.availability_deadline, 20),
+    budget: numberValue(formulaRecord.budget, 10),
+  }
+  return {
+    job_id: numberValue(value.job_id),
     metadata: { run_id: runId, scoring_version: scoringVersion, scoring_formula: formula },
-    candidates: candidates as MatchingCandidateDto[],
-    excluded_agents: excludedAgents as ExcludedAgentDto[],
+    candidates: candidatesValue.map((candidate) => normalizeCandidate(candidate, true)),
+    excluded_agents: excludedValue.map((candidate) => normalizeCandidate(candidate, false)),
   }
 }
 
-function parseAgentSelection(payload: unknown): AgentSelectionResponseDto {
-  const rootValue = isRecord(payload) && isRecord(payload.data) ? payload.data : payload
-  const root = isRecord(rootValue) && isRecord(rootValue.job) ? { ...rootValue, ...rootValue.job } : rootValue
-  if (!isRecord(root)) throw contractError('agent selection')
-  const jobId = root.job_id ?? root.id
-  const selectedAgentId = root.selected_agent_id ?? root.agent_id ?? (isRecord(root.selected_agent) ? root.selected_agent.id : undefined)
-  const status = root.status ?? 'selected'
-  const message = root.message === undefined ? null : root.message
-  if (!requiredInteger(jobId) || !requiredInteger(selectedAgentId) || !requiredString(status) || (message !== null && !requiredString(message))) throw contractError('agent selection')
-  return { job_id: jobId, selected_agent_id: selectedAgentId, status, message }
+function normalizeJobList(raw: unknown): JobListResponseDto {
+  const value = asRecord(raw)
+  return {
+    items: Array.isArray(value.items) ? value.items.map(normalizeJob) : [],
+    total: numberValue(value.total),
+  }
 }
 
-function jobListSearchParams(query: JobListQuery): string {
-  const params = new URLSearchParams()
-  if (query.status) params.set('status', query.status)
-  if (query.taskCategory?.trim()) params.set('task_category', query.taskCategory.trim())
-  if (query.search?.trim()) params.set('search', query.search.trim())
-  if (query.minBudget !== undefined && String(query.minBudget).trim()) params.set('min_budget', String(query.minBudget))
-  if (query.maxBudget !== undefined && String(query.maxBudget).trim()) params.set('max_budget', String(query.maxBudget))
-  if (query.sort) params.set('sort', query.sort)
-  if (query.requesterAgentId !== undefined) params.set('requester_agent_id', String(query.requesterAgentId))
-  if (query.skip !== undefined) params.set('skip', String(query.skip))
-  if (query.limit !== undefined) params.set('limit', String(query.limit))
-  if (query.page !== undefined) {
-    const pageSize = query.pageSize ?? query.limit ?? 100
-    params.set('skip', String(Math.max(0, query.page - 1) * pageSize))
-    if (query.pageSize !== undefined && query.limit === undefined) params.set('limit', String(query.pageSize))
+function normalizeAgentList(raw: unknown): AgentListResponseDto {
+  const value = asRecord(raw)
+  return {
+    items: Array.isArray(value.items) ? value.items.map(normalizeAgent) : [],
+    total: numberValue(value.total),
   }
-  return params.toString()
+}
+
+function normalizeMetrics(raw: unknown): DashboardMetricsDto {
+  const value = asRecord(raw)
+  const required = ['total_jobs', 'jobs_in_progress', 'completed_jobs', 'open_disputes', 'total_simulated_escrow_funded', 'total_simulated_escrow_settled']
+  if (required.some((key) => !(key in value))) throw new ApiError(502, 'dashboard metrics response does not match the canonical API contract', raw)
+  return {
+    total_jobs: numberValue(value.total_jobs),
+    jobs_in_progress: numberValue(value.jobs_in_progress),
+    completed_jobs: numberValue(value.completed_jobs),
+    open_disputes: numberValue(value.open_disputes),
+    total_simulated_escrow_funded: String(value.total_simulated_escrow_funded),
+    total_simulated_escrow_settled: String(value.total_simulated_escrow_settled),
+  }
+}
+
+function normalizeExecutionDashboard(raw: unknown): DashboardExecutionDto {
+  const value = asRecord(raw)
+  return {
+    jobs_running: numberValue(value.jobs_running),
+    jobs_awaiting_submission: numberValue(value.jobs_awaiting_submission),
+    jobs_awaiting_verification: numberValue(value.jobs_awaiting_verification),
+    jobs_eligible_for_settlement: numberValue(value.jobs_eligible_for_settlement),
+    recent_submissions: Array.isArray(value.recent_submissions) ? value.recent_submissions.map(normalizeSubmission) as DashboardExecutionDto['recent_submissions'] : [],
+    recent_verifications: Array.isArray(value.recent_verifications) ? value.recent_verifications.map(normalizeVerification) as DashboardExecutionDto['recent_verifications'] : [],
+  }
+}
+
+function normalizeSession(raw: unknown): DemoSessionDto {
+  const value = asRecord(raw)
+  if (typeof value.session_token !== 'string' || typeof value.expires_at !== 'string') throw new ApiError(502, 'demo session response does not match the canonical API contract', raw)
+  return {
+    session_token: value.session_token,
+    expires_at: value.expires_at,
+    max_jobs: numberValue(value.max_jobs, 3),
+    synthetic_only: value.synthetic_only !== false,
+    reset_note: typeof value.reset_note === 'string' ? value.reset_note : null,
+  }
+}
+
+function withJsonBody(payload: unknown): RequestInit {
+  return { method: 'POST', body: JSON.stringify(payload) }
 }
 
 export const api = {
-  health: () => request<unknown>('/api/health').then(parseHealth),
-  dashboardMetrics: () => request<unknown>('/api/v1/dashboard/metrics').then(parseDashboardMetrics),
-  agents: () => request<unknown>('/api/v1/agents').then(parseAgents),
-  agent: (agentId: number) => request<unknown>(`/api/v1/agents/${agentId}`).then(parseAgentDetail),
-  createJob: (payload: CreateJobPayload) => request<unknown>('/api/v1/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 201).then(parseJobDetail),
-  listJobs: (query: JobListQuery = {}) => {
-    const search = jobListSearchParams(query)
-    return request<unknown>(`/api/v1/jobs${search ? `?${search}` : ''}`).then(parseJobs)
+  async health(): Promise<HealthResponse> {
+    return await request<HealthResponse>('/api/health') as HealthResponse
   },
-  /** Compatibility alias for existing callers; new code should use listJobs. */
-  jobs: (query?: JobListQuery) => api.listJobs(query),
-  job: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}`).then(parseJobDetail),
-  runMatching: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/matches`, { method: 'POST' }).then(parseMatching),
-  latestMatching: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/matches`).then(parseMatching),
-  selectMatchingAgent: (jobId: number, agentId: number, runId?: string) => request<unknown>(`/api/v1/jobs/${jobId}/matches/${agentId}/select`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(runId ? { run_id: runId } : {}) }).then(parseAgentSelection),
-  createAgreement: (jobId: number, payload: CreateAgreementPayload) => request<unknown>(`/api/v1/jobs/${jobId}/agreement`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 201).then(parseAgreement),
-  agreement: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/agreement`).then((payload) => payload === undefined ? null : parseAgreement(payload)),
-  /** Compatibility alias retained for existing Phase 4/5 callers. */
-  jobAgreement: (jobId: number) => api.agreement(jobId),
-  agreementById: (agreementId: number) => request<unknown>(`/api/v1/agreements/${agreementId}`).then(parseAgreement),
-  agreementHistory: (agreementId: number) => request<unknown>(`/api/v1/agreements/${agreementId}/history`).then(parseAgreementHistory),
-  requestAgreementRevision: (agreementId: number, rationale?: string) => request<unknown>(`/api/v1/agreements/${agreementId}/revise`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'request_revision', ...(rationale ? { rationale } : {}) }) }).then(parseAgreement),
-  submitAgreementRevision: (agreementId: number, payload: SubmitAgreementRevisionPayload) => request<unknown>(`/api/v1/agreements/${agreementId}/revise`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, action: 'submit_revision' }) }).then(parseAgreement),
-  acceptAgreement: (agreementId: number) => request<unknown>(`/api/v1/agreements/${agreementId}/accept`, { method: 'POST' }).then(parseAgreement),
-  rejectAgreement: (agreementId: number) => request<unknown>(`/api/v1/agreements/${agreementId}/reject`, { method: 'POST' }).then(parseAgreement),
-  cancelAgreement: (agreementId: number) => request<unknown>(`/api/v1/agreements/${agreementId}/cancel`, { method: 'POST' }).then(parseAgreement),
-  jobEscrow: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/escrow`).then((payload) => payload === undefined ? null : parseEscrow(payload)),
-  fundDemoEscrow: (jobId: number, idempotencyKey?: string) => request<unknown>(`/api/v1/jobs/${jobId}/escrow/fund`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(idempotencyKey ? { idempotency_key: idempotencyKey } : {}) }).then(parseEscrow),
-  releaseEscrow: (escrowId: number) => request<unknown>(`/api/v1/escrows/${escrowId}/release`, { method: 'POST' }).then(parseEscrow),
-  refundEscrow: (escrowId: number) => request<unknown>(`/api/v1/escrows/${escrowId}/refund`, { method: 'POST' }).then(parseEscrow),
-  escrowLedger: (escrowId: number) => request<unknown>(`/api/v1/escrows/${escrowId}/ledger`).then(parseLedger),
-  jobEvents: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/events`).then(parseJobEvents),
-  dashboardExecution: () => request<unknown>('/api/v1/dashboard/execution').then(parseDashboardExecution),
-  execution: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/execution`).then(parseExecution),
-  startExecution: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/start`, { method: 'POST' }).then(parseExecution),
-  submitJob: (jobId: number, payload: { submitted_output: string; evidence: Record<string, unknown>; notes?: string; agent_id?: number }) => request<unknown>(`/api/v1/jobs/${jobId}/submit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 201).then((response) => {
-    const submission = parseSubmission(response)
-    if (!submission) throw contractError('submission')
-    return submission
-  }),
-  submissions: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/submissions`).then(parseSubmissions),
-  verifyJob: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/verify`, { method: 'POST' }).then(parseVerificationResponse),
-  jobVerification: (jobId: number) => request<unknown>(`/api/v1/jobs/${jobId}/verification`).then((payload) => payload === undefined ? null : parseVerificationResponse(payload)),
-  disputes: (status?: DisputeStatus) => request<unknown>(`/api/v1/disputes${status ? `?status=${encodeURIComponent(status)}` : ''}`).then(parseDisputes),
-  jobDisputes: (jobId: number, status?: DisputeStatus) => request<unknown>(`/api/v1/jobs/${jobId}/disputes${status ? `?status=${encodeURIComponent(status)}` : ''}`).then(parseDisputes),
-  dispute: (disputeId: number) => request<unknown>(`/api/v1/disputes/${disputeId}`).then(parseDisputeResponse),
-  createDispute: (jobId: number, payload: CreateDisputePayload) => request<unknown>(`/api/v1/jobs/${jobId}/disputes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 201).then(parseDisputeResponse),
-  reviewDispute: (disputeId: number, rationale?: string, operator = 'demo-operator') => request<unknown>(`/api/v1/disputes/${disputeId}/review`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Demo-Operator': operator }, body: JSON.stringify(rationale ? { rationale } : {}) }).then(parseDisputeResponse),
-  resolveDispute: (disputeId: number, resolution: DisputeResolution, rationale: string, operator = 'demo-operator') => request<unknown>(`/api/v1/disputes/${disputeId}/resolve`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Demo-Operator': operator }, body: JSON.stringify({ resolution, rationale }) }).then(parseDisputeResponse),
-  disputeEvents: (disputeId: number) => request<unknown>(`/api/v1/disputes/${disputeId}/events`).then(parseJobEvents),
+
+  async startSession(): Promise<DemoSessionDto> {
+    const session = normalizeSession(await rawRequest<unknown>('/api/demo/session', { method: 'POST' }))
+    return storeSession(session)
+  },
+
+  async resetSession(token?: string): Promise<DemoSessionDto> {
+    const session = normalizeSession(await rawRequest<unknown>('/api/demo/reset', withJsonBody({}), token ?? readStoredSession()?.session_token))
+    return storeSession(session)
+  },
+
+  async agents(token?: string): Promise<AgentListResponseDto> {
+    return normalizeAgentList(await request<unknown>('/api/v1/agents', {}, token))
+  },
+
+  async listAgents(token?: string): Promise<AgentListResponseDto> {
+    return api.agents(token)
+  },
+
+  async agent(agentId: number, token?: string): Promise<AgentDetailDto> {
+    return normalizeAgent(await request<unknown>(`/api/v1/agents/${agentId}`, {}, token))
+  },
+
+  async listJobs(token?: string): Promise<JobListResponseDto> {
+    return normalizeJobList(await request<unknown>('/api/v1/jobs', {}, token))
+  },
+
+  async jobs(token?: string): Promise<JobListResponseDto> {
+    return api.listJobs(token)
+  },
+
+  async job(jobId: number, token?: string): Promise<JobDetailDto> {
+    return normalizeJob(await request<unknown>(`/api/v1/jobs/${jobId}`, {}, token))
+  },
+
+  async getJob(jobId: number, token?: string): Promise<JobDetailDto> {
+    return api.job(jobId, token)
+  },
+
+  async createJob(payload: CreateJobPayload, token?: string): Promise<JobDetailDto> {
+    return normalizeJob(await request<unknown>('/api/v1/jobs', withJsonBody(payload), token))
+  },
+
+  async dashboardMetrics(token?: string): Promise<DashboardMetricsDto> {
+    return normalizeMetrics(await request<unknown>('/api/v1/dashboard/metrics', {}, token))
+  },
+
+  async getMetrics(token?: string): Promise<DashboardMetricsDto> {
+    return api.dashboardMetrics(token)
+  },
+
+  async dashboardExecution(token?: string): Promise<DashboardExecutionDto> {
+    return normalizeExecutionDashboard(await request<unknown>('/api/v1/dashboard/execution', {}, token))
+  },
+
+  async getExecutionMetrics(token?: string): Promise<DashboardExecutionDto> {
+    return api.dashboardExecution(token)
+  },
+
+  async runMatching(jobId: number, token?: string): Promise<MatchingResponseDto> {
+    return normalizeMatching(await request<unknown>(`/api/v1/jobs/${jobId}/matches`, withJsonBody({}), token))
+  },
+
+  async latestMatching(jobId: number, token?: string): Promise<MatchingResponseDto | null> {
+    const result = await request<unknown>(`/api/v1/jobs/${jobId}/matches`, {}, token)
+    return result === null ? null : normalizeMatching(result)
+  },
+
+  async matchJob(jobId: number, token?: string): Promise<MatchingResponseDto> {
+    return api.runMatching(jobId, token)
+  },
+
+  async selectMatchingAgent(jobId: number, agentId: number, runId?: string, token?: string): Promise<JobDetailDto> {
+    return normalizeJob(await request<unknown>(`/api/v1/jobs/${jobId}/matches/${agentId}/select`, withJsonBody(runId ? { run_id: runId } : {}), token))
+  },
+
+  async selectAgent(jobId: number, agentId: number, runId?: string, token?: string): Promise<JobDetailDto> {
+    return api.selectMatchingAgent(jobId, agentId, runId, token)
+  },
+
+  async agreement(jobId: number, token?: string): Promise<AgreementDto | null> {
+    const result = await request<unknown>(`/api/v1/jobs/${jobId}/agreement`, {}, token)
+    return result === null ? null : normalizeAgreement(result)
+  },
+
+  async getAgreement(jobId: number, token?: string): Promise<AgreementDto | null> {
+    return api.agreement(jobId, token)
+  },
+
+  async createAgreement(jobId: number, payload: CreateAgreementPayload = {}, token?: string): Promise<AgreementDto> {
+    return normalizeAgreement(await request<unknown>(`/api/v1/jobs/${jobId}/agreement`, withJsonBody(payload), token))
+  },
+
+  async agreementHistory(agreementId: number, token?: string): Promise<AgreementHistoryEntryDto[]> {
+    const result = await request<unknown>(`/api/v1/agreements/${agreementId}/history`, {}, token)
+    return Array.isArray(result) ? result.map((item) => asRecord(item) as AgreementHistoryEntryDto) : []
+  },
+
+  async submitAgreementRevision(agreementId: number, payload: SubmitAgreementRevisionPayload, token?: string): Promise<AgreementDto> {
+    return normalizeAgreement(await request<unknown>(`/api/v1/agreements/${agreementId}/revise`, withJsonBody(payload), token))
+  },
+
+  async requestAgreementRevision(agreementId: number, rationale?: string, token?: string): Promise<AgreementDto> {
+    return normalizeAgreement(await request<unknown>(`/api/v1/agreements/${agreementId}/revise`, withJsonBody({ action: 'request_revision', ...(rationale ? { rationale } : {}) }), token))
+  },
+
+  async acceptAgreement(agreementId: number, token?: string): Promise<AgreementDto> {
+    return normalizeAgreement(await request<unknown>(`/api/v1/agreements/${agreementId}/accept`, withJsonBody({}), token))
+  },
+
+  async rejectAgreement(agreementId: number, token?: string): Promise<AgreementDto> {
+    return normalizeAgreement(await request<unknown>(`/api/v1/agreements/${agreementId}/reject`, withJsonBody({}), token))
+  },
+
+  async cancelAgreement(agreementId: number, token?: string): Promise<AgreementDto> {
+    return normalizeAgreement(await request<unknown>(`/api/v1/agreements/${agreementId}/cancel`, withJsonBody({}), token))
+  },
+
+  async jobEscrow(jobId: number, token?: string): Promise<EscrowDto | null> {
+    const result = await request<unknown>(`/api/v1/jobs/${jobId}/escrow`, {}, token)
+    return result === null ? null : normalizeEscrow(result)
+  },
+
+  async getEscrow(jobId: number, token?: string): Promise<EscrowDto | null> {
+    return api.jobEscrow(jobId, token)
+  },
+
+  async fundDemoEscrow(jobId: number, token?: string): Promise<EscrowDto> {
+    return normalizeEscrow(await request<unknown>(`/api/v1/jobs/${jobId}/escrow/fund`, withJsonBody({}), token))
+  },
+
+  async fundEscrow(jobId: number, token?: string): Promise<EscrowDto> {
+    return api.fundDemoEscrow(jobId, token)
+  },
+
+  async escrowLedger(escrowId: number, token?: string): Promise<LedgerEntryDto[]> {
+    const result = await request<unknown>(`/api/v1/escrows/${escrowId}/ledger`, {}, token)
+    return Array.isArray(result) ? result.map(normalizeLedger) : []
+  },
+
+  async releaseEscrow(escrowId: number, token?: string): Promise<EscrowDto> {
+    return normalizeEscrow(await request<unknown>(`/api/v1/escrows/${escrowId}/release`, withJsonBody({}), token))
+  },
+
+  async execution(jobId: number, token?: string): Promise<ExecutionDto> {
+    return normalizeExecution(await request<unknown>(`/api/v1/jobs/${jobId}/execution`, {}, token))
+  },
+
+  async getExecution(jobId: number, token?: string): Promise<ExecutionDto> {
+    return api.execution(jobId, token)
+  },
+
+  async startExecution(jobId: number, token?: string): Promise<ExecutionDto> {
+    return normalizeExecution(await request<unknown>(`/api/v1/jobs/${jobId}/start`, withJsonBody({}), token))
+  },
+
+  async submitJob(jobId: number, payload: SubmissionPayload, token?: string): Promise<SubmissionDto> {
+    return normalizeSubmission(await request<unknown>(`/api/v1/jobs/${jobId}/submit`, withJsonBody(payload), token))
+  },
+
+  async submit(jobId: number, payload: SubmissionPayload, token?: string): Promise<SubmissionDto> {
+    return api.submitJob(jobId, payload, token)
+  },
+
+  async submissions(jobId: number, token?: string): Promise<SubmissionDto[]> {
+    const result = await request<unknown>(`/api/v1/jobs/${jobId}/submissions`, {}, token)
+    return Array.isArray(result) ? result.map(normalizeSubmission) : []
+  },
+
+  async listSubmissions(jobId: number, token?: string): Promise<SubmissionDto[]> {
+    return api.submissions(jobId, token)
+  },
+
+  async verifyJob(jobId: number, token?: string): Promise<VerificationDto> {
+    return normalizeVerification(await request<unknown>(`/api/v1/jobs/${jobId}/verify`, withJsonBody({}), token))
+  },
+
+  async verify(jobId: number, token?: string): Promise<VerificationDto> {
+    return api.verifyJob(jobId, token)
+  },
+
+  async jobVerification(jobId: number, token?: string): Promise<VerificationDto | null> {
+    const result = await request<unknown>(`/api/v1/jobs/${jobId}/verification`, {}, token)
+    return result === null ? null : normalizeVerification(result)
+  },
+
+  async getVerification(jobId: number, token?: string): Promise<VerificationDto | null> {
+    return api.jobVerification(jobId, token)
+  },
+
+  async jobEvents(jobId: number, token?: string): Promise<JobEventDto[]> {
+    const result = await request<unknown>(`/api/v1/jobs/${jobId}/events`, {}, token)
+    return Array.isArray(result) ? result.map(normalizeEvent) : []
+  },
+
+  async getEvents(jobId: number, token?: string): Promise<JobEventDto[]> {
+    return api.jobEvents(jobId, token)
+  },
+
+  async disputes(status?: DisputeStatus, token?: string): Promise<DisputeDto[]> {
+    const query = status ? `?status=${encodeURIComponent(status)}` : ''
+    const result = await request<unknown>(`/api/v1/disputes${query}`, {}, token)
+    return Array.isArray(result) ? result.map(normalizeDispute) : []
+  },
+
+  async jobDisputes(jobId: number, token?: string): Promise<DisputeDto[]> {
+    const result = await request<unknown>(`/api/v1/jobs/${jobId}/disputes`, {}, token)
+    return Array.isArray(result) ? result.map(normalizeDispute) : []
+  },
+
+  async getDisputes(jobId: number, token?: string): Promise<DisputeDto[]> {
+    return api.jobDisputes(jobId, token)
+  },
+
+  async dispute(disputeId: number, token?: string): Promise<DisputeDto> {
+    return normalizeDispute(await request<unknown>(`/api/v1/disputes/${disputeId}`, {}, token))
+  },
+
+  async createDispute(jobId: number, payload: DisputeCreatePayload, token?: string): Promise<DisputeDto> {
+    return normalizeDispute(await request<unknown>(`/api/v1/jobs/${jobId}/disputes`, withJsonBody(payload), token))
+  },
+
+  async reviewDispute(disputeId: number, rationale?: string, token?: string): Promise<DisputeDto> {
+    const sessionToken = token ?? readStoredSession()?.session_token
+    return normalizeDispute(await rawRequest<unknown>(
+      `/api/v1/disputes/${disputeId}/review`,
+      { ...withJsonBody(rationale ? { rationale } : {}), headers: { 'X-Demo-Operator': DEMO_PUBLIC_ENABLED && sessionToken ? 'demo-session' : 'demo-operator' } },
+      sessionToken,
+    ))
+  },
+
+  async resolveDispute(disputeId: number, resolution: DisputeResolution, rationale: string, token?: string): Promise<DisputeDto> {
+    const sessionToken = token ?? readStoredSession()?.session_token
+    const result = await rawRequest<unknown>(`/api/v1/disputes/${disputeId}/resolve`, { ...withJsonBody({ resolution, rationale }), headers: { 'X-Demo-Operator': DEMO_PUBLIC_ENABLED && sessionToken ? 'demo-session' : 'demo-operator' } }, sessionToken)
+    return normalizeDispute(result)
+  },
 }
 
-export { baseUrl }
+export function getApiFieldErrors(error: unknown): Record<string, string> {
+  if (!(error instanceof ApiError)) return {}
+  const payload = asRecord(error.payload)
+  const detail = payload.detail
+  if (!Array.isArray(detail)) return {}
+  const mapped: Record<string, string> = {}
+  detail.forEach((item) => {
+    const record = asRecord(item)
+    const location = Array.isArray(record.loc) ? record.loc.map(String).filter((part) => part !== 'body') : []
+    if (location.length > 0 && typeof record.msg === 'string') mapped[location.join('.')] = record.msg
+  })
+  return mapped
+}

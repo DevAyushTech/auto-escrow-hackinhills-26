@@ -17,5 +17,15 @@
     "noEmit": true,
     "jsx": "react-jsx"
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": [
+    "src/app",
+    "src/components/agents",
+    "src/components/demo",
+    "src/components/layout",
+    "src/components/ui",
+    "src/context",
+    "src/data",
+    "src/lib/utils.ts"
+  ]
 }

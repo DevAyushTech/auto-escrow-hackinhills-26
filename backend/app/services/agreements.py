@@ -19,6 +19,7 @@ from app.agreement_states import (
     validate_submit_revision,
     validate_transition,
 )
+from app.demo_sessions import get_scoped_job, scope_job_query
 from app.job_states import InvalidJobTransition
 from app.models import Agent, Agreement, Job, SUPPORTED_CURRENCIES
 from app.schemas import (
@@ -70,11 +71,19 @@ class JobStateConflictError(AgreementServiceError):
 
 
 def get_agreement(db: Session, agreement_id: int) -> Agreement | None:
-    return db.get(Agreement, agreement_id)
+    query = scope_job_query(
+        db,
+        select(Agreement).join(Job, Agreement.job_id == Job.id).where(Agreement.id == agreement_id),
+    )
+    return db.scalar(query)
 
 
 def get_job_agreement(db: Session, job_id: int) -> Agreement | None:
-    return db.scalar(select(Agreement).where(Agreement.job_id == job_id))
+    query = scope_job_query(
+        db,
+        select(Agreement).join(Job, Agreement.job_id == Job.id).where(Agreement.job_id == job_id),
+    )
+    return db.scalar(query)
 
 
 def _normalize_deadline(value: datetime, *, require_timezone: bool, enforce_horizon: bool = True) -> datetime:
@@ -168,7 +177,7 @@ def _validated_terms(value: dict[str, Any]) -> AgreementTerms:
 
 
 def _validate_job_for_create(db: Session, job_id: int) -> tuple[Job, Agent]:
-    job = db.get(Job, job_id)
+    job = get_scoped_job(db, job_id)
     if job is None:
         raise JobNotFoundForAgreementError("job not found")
     if job.status != "open":
@@ -300,7 +309,7 @@ def submit_revision(db: Session, agreement_id: int, payload: AgreementRevisionRe
     budget = _normalize_budget(payload.proposed_budget or current_budget)
     current_deadline = agreement.proposed_deadline
     if current_deadline is None:
-        job = db.get(Job, agreement.job_id)
+        job = get_scoped_job(db, agreement.job_id)
         if job is None:
             raise JobNotFoundForAgreementError("job not found")
         current_deadline = job.deadline
@@ -370,7 +379,7 @@ def accept_agreement(db: Session, agreement_id: int, payload: AgreementActionReq
         validate_transition(agreement.status, ACCEPTED_STATUS)
     except InvalidAgreementTransition as exc:
         raise AgreementStateConflictError(str(exc)) from exc
-    job = db.get(Job, agreement.job_id)
+    job = get_scoped_job(db, agreement.job_id)
     if job is None:
         raise JobNotFoundForAgreementError("job not found")
     try:

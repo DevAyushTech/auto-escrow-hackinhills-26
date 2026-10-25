@@ -140,8 +140,8 @@ export function CreateJobPage() {
         const mappedField = apiFieldMap[field]
         if (mappedField) mappedErrors[mappedField] = message
       })
-      setErrors(mappedErrors)
-      setApiError(error instanceof ApiError ? error.message : 'The job could not be created. Try again.')
+       setErrors(mappedErrors)
+       setApiError(Object.keys(mappedErrors).length > 0 ? null : error instanceof ApiError ? error.message : 'The job could not be created. Try again.')
     } finally {
       setSubmitting(false)
     }
